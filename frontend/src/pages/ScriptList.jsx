@@ -27,6 +27,7 @@ export default function ScriptList() {
   const [bulkApplying, setBulkApplying] = useState(false)
   const [bulkMessage, setBulkMessage] = useState('')
   const [favoriteOnly, setFavoriteOnly] = useState(false)
+  const [everywhereOnly, setEverywhereOnly] = useState(false)
   const [allScriptsForRecent, setAllScriptsForRecent] = useState([])
 
   useEffect(() => {
@@ -39,7 +40,7 @@ export default function ScriptList() {
     setLoading(true)
     const timeout = setTimeout(() => {
       api
-        .listScripts({ host: host || undefined, tags: [...selectedTags], q: q || undefined, favorite: favoriteOnly })
+        .listScripts({ host: host || undefined, tags: [...selectedTags], q: q || undefined, favorite: favoriteOnly, everywhere: everywhereOnly })
         .then((r) => {
           setScripts(r.scripts)
           setVisibleCount(PAGE_SIZE) // nový filter/hľadanie -- začni znova od prvej strany
@@ -48,7 +49,7 @@ export default function ScriptList() {
         .finally(() => setLoading(false))
     }, 200) // debounce fulltext hľadania
     return () => clearTimeout(timeout)
-  }, [host, selectedTags, q, favoriteOnly])
+  }, [host, selectedTags, q, favoriteOnly, everywhereOnly])
 
   async function handleToggleFavorite(e, scriptId) {
     e.preventDefault()
@@ -106,7 +107,7 @@ export default function ScriptList() {
 
   return (
     <div>
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="mb-4 flex flex-col flex-wrap gap-3 sm:flex-row sm:items-center">
         <input
           type="text"
           placeholder="Hľadaj podľa mena, popisu, poznámok alebo obsahu..."
@@ -137,6 +138,18 @@ export default function ScriptList() {
           }`}
         >
           ★ Obľúbené
+        </button>
+        <button
+          type="button"
+          onClick={() => setEverywhereOnly((v) => !v)}
+          title="Zobraziť len skripty, ktoré vedia bežať na hocijakom stroji"
+          className={`rounded border px-3 py-2 text-sm ${
+            everywhereOnly
+              ? 'border-blue bg-blue text-white'
+              : 'border-border-strong bg-panel text-text-secondary hover:border-blue hover:text-text-primary'
+          }`}
+        >
+          ✓ Všade
         </button>
         <button
           type="button"

@@ -65,6 +65,7 @@ def list_scripts(
     tag: list[str] = Query(default=[]),
     q: str | None = None,
     favorite: bool = False,
+    everywhere: bool = False,
 ):
     clauses = []
     params: list = []
@@ -74,6 +75,8 @@ def list_scripts(
         params.append(host)
     if favorite:
         clauses.append("is_favorite = 1")
+    if everywhere:
+        clauses.append("works_everywhere = 1")
     if tag:
         # OR across selected tag chips -- "docker" + "network" means
         # "either category", the way a category filter is normally read,

@@ -24,12 +24,13 @@ export const api = {
   verifyPassword: (password) =>
     request('/auth/verify', { method: 'POST', body: JSON.stringify({ password }) }),
 
-  listScripts: ({ host, tags, q, favorite } = {}) => {
+  listScripts: ({ host, tags, q, favorite, everywhere } = {}) => {
     const params = new URLSearchParams()
     if (host) params.set('host', host)
     for (const t of tags || []) params.append('tag', t)
     if (q) params.set('q', q)
     if (favorite) params.set('favorite', 'true')
+    if (everywhere) params.set('everywhere', 'true')
     const qs = params.toString()
     return request(`/scripts${qs ? `?${qs}` : ''}`)
   },
