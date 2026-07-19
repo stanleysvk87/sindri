@@ -502,7 +502,7 @@ export default function AddScript() {
   return (
     <div>
       <h1 className="mb-6 text-xl font-semibold text-text-primary">Pridať skript</h1>
-      <div className="mb-6 flex gap-1 border-b border-border">
+      <div className="mb-6 flex gap-1 overflow-x-auto border-b border-border">
         {[
           ['scan', 'Prehľadať priečinok'],
           ['remote', 'Vzdialená cesta (SSH)'],
@@ -513,7 +513,7 @@ export default function AddScript() {
             key={key}
             type="button"
             onClick={() => setTab(key)}
-            className={`px-4 py-2 text-sm font-medium ${
+            className={`shrink-0 whitespace-nowrap px-4 py-2 text-sm font-medium ${
               tab === key
                 ? 'border-b-2 border-blue text-text-primary'
                 : 'text-text-tertiary hover:text-text-secondary'

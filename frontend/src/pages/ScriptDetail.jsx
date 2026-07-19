@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../lib/api'
+import { recordVisit } from '../lib/recent'
 
 // Display-only masking (mirrors backend/app/secret_scan.py's heuristics
 // loosely) -- hides likely secrets by default so a shoulder-surf or
@@ -25,6 +26,16 @@ function maskSecrets(content) {
   return masked
 }
 
+const ACTION_LABELS = {
+  create_paste: 'Vytvorené (vložením)',
+  update: 'Upravené',
+  delete: 'Zmazané z katalógu',
+  remote_exec: 'Spustené na diaľku',
+  push: 'Zapísané naspäť na stroj',
+  bulk_import: 'Hromadný import',
+  remote_import: 'Vzdialený import',
+}
+
 function EditableField({ label, value, onSave, multiline = false, placeholder = '' }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
@@ -33,7 +44,7 @@ function EditableField({ label, value, onSave, multiline = false, placeholder = 
 
   if (!editing) {
     return (
-      <div className="mb-4">
+      <div className="mb-4 min-w-0">
         <div className="mb-1 flex items-center justify-between">
           <h3 className="text-xs uppercase tracking-wide text-text-tertiary">{label}</h3>
           <button
@@ -44,7 +55,7 @@ function EditableField({ label, value, onSave, multiline = false, placeholder = 
             upraviť
           </button>
         </div>
-        <p className="whitespace-pre-wrap text-sm text-text-primary">
+        <p className="whitespace-pre-wrap break-words text-sm text-text-primary">
           {value || <span className="text-text-tertiary">{placeholder}</span>}
         </p>
       </div>
@@ -119,6 +130,8 @@ export default function ScriptDetail() {
   const [remoteUseSudo, setRemoteUseSudo] = useState(false)
   const [remoteRunning, setRemoteRunning] = useState(false)
   const [remoteResult, setRemoteResult] = useState(null)
+  const [runAllRunning, setRunAllRunning] = useState(false)
+  const [runAllResults, setRunAllResults] = useState(null)
   const [useAdHoc, setUseAdHoc] = useState(false)
   const [adHoc, setAdHoc] = useState({
     host: '', port: 22, ssh_user: 'stanley', auth_type: 'key', ssh_key_path: '',
@@ -127,22 +140,55 @@ export default function ScriptDetail() {
   const [adHocSaveName, setAdHocSaveName] = useState('')
   const [availableKeys, setAvailableKeys] = useState([])
   const [revealSecrets, setRevealSecrets] = useState(false)
+  const [revealPrompt, setRevealPrompt] = useState(false)
+  const [revealPassword, setRevealPassword] = useState('')
+  const [revealError, setRevealError] = useState('')
+  const [revealChecking, setRevealChecking] = useState(false)
   const [pushing, setPushing] = useState(false)
   const [pushResult, setPushResult] = useState(null)
+  const [rescanning, setRescanning] = useState(false)
+  const [rescanResult, setRescanResult] = useState(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [history, setHistory] = useState([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [sshCopyOpen, setSshCopyOpen] = useState(false)
+  const [sshCopyMachineId, setSshCopyMachineId] = useState('')
+  const [sshCopied, setSshCopied] = useState(false)
 
   function reload() {
-    api.getScript(id).then(setScript).catch(() => setError('Skript sa nenašiel.'))
+    api
+      .getScript(id)
+      .then((s) => {
+        setScript(s)
+        recordVisit(s.id)
+      })
+      .catch(() => setError('Skript sa nenašiel.'))
   }
 
   useEffect(reload, [id])
-  useEffect(() => setRevealSecrets(false), [id])
+  useEffect(() => {
+    setRevealSecrets(false)
+    setRevealPrompt(false)
+    setRevealPassword('')
+    setRevealError('')
+    setHistoryOpen(false)
+    setHistory([])
+    setSshCopyOpen(false)
+    setSshCopied(false)
+    setRescanResult(null)
+    setPushResult(null)
+    setRunAllResults(null)
+  }, [id])
   useEffect(() => {
     api.aiStatus().then((s) => setAiAvailable(s.available)).catch(() => setAiAvailable(false))
     api.sandboxStatus().then((s) => setSandboxAvailable(s.available)).catch(() => setSandboxAvailable(false))
     api.settings().then((s) => setRemoteExecEnabled(s.remote_exec_enabled)).catch(() => {})
     api.machines().then((r) => {
       setMachines(r.machines)
-      if (r.machines.length > 0) setRemoteMachineId(String(r.machines[0].id))
+      if (r.machines.length > 0) {
+        setRemoteMachineId(String(r.machines[0].id))
+        setSshCopyMachineId(String(r.machines[0].id))
+      }
     }).catch(() => {})
     api.availableKeys().then((r) => {
       setAvailableKeys(r.keys)
@@ -155,16 +201,69 @@ export default function ScriptDetail() {
     setScript(updated)
   }
 
+  async function handleToggleHistory() {
+    if (historyOpen) {
+      setHistoryOpen(false)
+      return
+    }
+    setHistoryOpen(true)
+    setHistoryLoading(true)
+    try {
+      const result = await api.scriptHistory(id)
+      setHistory(result.entries)
+    } catch {
+      setHistory([])
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
   async function handleCopy() {
     await navigator.clipboard.writeText(script.content)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
 
+  function buildSshCommand(machine, content) {
+    const target = `${machine.ssh_user}@${machine.host}`
+    const portFlag = machine.port && machine.port !== 22 ? ` -p ${machine.port}` : ''
+    const keyFlag = machine.auth_type === 'key' && machine.ssh_key_path_host ? ` -i ${machine.ssh_key_path_host}` : ''
+    return `ssh${keyFlag}${portFlag} ${target} 'bash -s' <<'SINDRI_SCRIPT'\n${content}\nSINDRI_SCRIPT`
+  }
+
+  function handleToggleSshCopy() {
+    if (sshCopyOpen) {
+      setSshCopyOpen(false)
+      return
+    }
+    const matching = machines.find((m) => m.name === script.host)
+    if (matching) setSshCopyMachineId(String(matching.id))
+    setSshCopied(false)
+    setSshCopyOpen(true)
+  }
+
+  async function handleCopySshCommand() {
+    const machine = machines.find((m) => String(m.id) === sshCopyMachineId)
+    if (!machine) return
+    await navigator.clipboard.writeText(buildSshCommand(machine, script.content))
+    setSshCopied(true)
+    setTimeout(() => setSshCopied(false), 1500)
+  }
+
   async function handleDelete() {
     if (!confirm(`Naozaj zmazať "${script.name}" z katalógu? (originál na disku sa netýka)`)) return
     await api.deleteScript(id)
     navigate('/')
+  }
+
+  async function handleToggleFavorite() {
+    const result = await api.toggleFavorite(id)
+    setScript((s) => ({ ...s, is_favorite: result.is_favorite }))
+  }
+
+  async function handleDuplicate() {
+    const copy = await api.duplicateScript(id)
+    navigate(`/scripts/${copy.id}`)
   }
 
   async function handleReview() {
@@ -243,6 +342,26 @@ export default function ScriptDetail() {
     }
   }
 
+  async function handleConfirmReveal(e) {
+    e.preventDefault()
+    setRevealError('')
+    setRevealChecking(true)
+    try {
+      const result = await api.verifyPassword(revealPassword)
+      if (result.ok) {
+        setRevealSecrets(true)
+        setRevealPrompt(false)
+        setRevealPassword('')
+      } else {
+        setRevealError('Nesprávne heslo.')
+      }
+    } catch {
+      setRevealError('Overenie zlyhalo.')
+    } finally {
+      setRevealChecking(false)
+    }
+  }
+
   async function handlePush() {
     setPushing(true)
     setPushResult(null)
@@ -253,6 +372,20 @@ export default function ScriptDetail() {
       setPushResult({ error: err.message || 'Zápis na pôvodný stroj zlyhal.' })
     } finally {
       setPushing(false)
+    }
+  }
+
+  async function handleRescan() {
+    setRescanning(true)
+    setRescanResult(null)
+    try {
+      const result = await api.rescanScript(id)
+      setScript(result.script)
+      setRescanResult({ changed: result.changed })
+    } catch (err) {
+      setRescanResult({ error: err.message || 'Obnovenie zo zdroja zlyhalo.' })
+    } finally {
+      setRescanning(false)
     }
   }
 
@@ -300,22 +433,59 @@ export default function ScriptDetail() {
     }
   }
 
+  async function handleRemoteExecAll() {
+    setRunAllRunning(true)
+    setRunAllResults(null)
+    try {
+      const result = await api.remoteExecAll(id, remoteUseSudo ? remoteSudoPassword : null)
+      setRunAllResults(result.results)
+    } catch (err) {
+      setRunAllResults([{ machine_name: '?', error: err.message || 'Spustenie na všetkých strojoch zlyhalo.' }])
+    } finally {
+      setRunAllRunning(false)
+      setRemoteSudoPassword('')
+    }
+  }
+
   if (error) return <p className="text-warning">{error}</p>
   if (!script) return <p className="text-text-tertiary">Načítavam...</p>
 
   return (
     <div>
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold text-text-primary">{script.name}</h1>
-          <p className="mt-1 text-xs text-text-tertiary">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-text-primary">
+            <span>{script.name.endsWith('.py') ? '🐍' : script.name.endsWith('.sh') ? '🐚' : '📄'}</span>
+            <span className="min-w-0 break-words">{script.name}</span>
+            <button
+              type="button"
+              onClick={handleToggleFavorite}
+              title={script.is_favorite ? 'Odobrať z obľúbených' : 'Pridať medzi obľúbené'}
+              className={`text-lg ${script.is_favorite ? 'text-warning' : 'text-text-tertiary hover:text-warning'}`}
+            >
+              {script.is_favorite ? '★' : '☆'}
+            </button>
+          </h1>
+          <p className="mt-1 break-words text-xs text-text-tertiary">
             {script.source_type === 'local_import' && `Import z ${script.source_ref}`}
             {script.source_type === 'remote_import' && `Stiahnuté z ${script.source_ref}`}
             {script.source_type === 'pasted' && 'Vložené ručne'}
             {script.source_ref && script.source_type === 'pasted' && ` · zdroj: ${script.source_ref}`}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {(script.source_type === 'local_import' ||
+            (script.source_type === 'remote_import' && remoteExecEnabled)) && (
+            <button
+              type="button"
+              onClick={handleRescan}
+              disabled={rescanning}
+              title="Znovu načíta obsah z pôvodného zdroja a aktualizuje ho tu, ak sa medzičasom zmenil."
+              className="text-xs text-blue-light hover:underline disabled:opacity-50"
+            >
+              {rescanning ? 'Kontrolujem zdroj...' : '↓ Obnoviť zo zdroja'}
+            </button>
+          )}
           {script.source_type === 'remote_import' && remoteExecEnabled && (
             <button
               type="button"
@@ -329,6 +499,13 @@ export default function ScriptDetail() {
           )}
           <button
             type="button"
+            onClick={handleDuplicate}
+            className="text-xs text-blue-light hover:underline"
+          >
+            Duplikovať
+          </button>
+          <button
+            type="button"
             onClick={handleDelete}
             className="text-xs text-text-tertiary hover:text-warning"
           >
@@ -339,6 +516,14 @@ export default function ScriptDetail() {
       {pushResult && (
         <p className={`mb-4 text-sm ${pushResult.error ? 'text-warning' : 'text-success'}`}>
           {pushResult.error || `Zapísané na ${pushResult.path} (${pushResult.duration_ms} ms)`}
+        </p>
+      )}
+      {rescanResult && (
+        <p className={`mb-4 text-sm ${rescanResult.error ? 'text-warning' : rescanResult.changed ? 'text-warning' : 'text-success'}`}>
+          {rescanResult.error ||
+            (rescanResult.changed
+              ? 'Zdroj sa líšil od uloženej verzie -- obsah tu bol aktualizovaný.'
+              : 'Zhoduje sa so zdrojom, žiadna zmena.')}
         </p>
       )}
 
@@ -365,7 +550,7 @@ export default function ScriptDetail() {
         <EditableField label="Stroj" value={script.host} onSave={(v) => save('host', v)} placeholder="opi / victus / kdekoľvek" />
         <EditableField label="Spôsob spustenia" value={script.run_mode} onSave={(v) => save('run_mode', v)} placeholder="manuál / cron / systemd" />
         <EditableField label="Tagy (čiarkou)" value={script.tags} onSave={(v) => save('tags', v)} placeholder="žiadne" />
-        <div className="mb-4">
+        <div className="mb-4 min-w-0">
           <h3 className="mb-1 text-xs uppercase tracking-wide text-text-tertiary">Naposledy upravené</h3>
           <p className="text-sm text-text-primary">{new Date(script.updated_at).toLocaleString('sk-SK')}</p>
         </div>
@@ -392,9 +577,9 @@ export default function ScriptDetail() {
         placeholder="žiadne poznámky"
       />
 
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs uppercase tracking-wide text-text-tertiary">Obsah</h3>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={handleCopy}
@@ -402,6 +587,23 @@ export default function ScriptDetail() {
           >
             {copied ? 'Skopírované ✓' : 'Kopírovať'}
           </button>
+          <button
+            type="button"
+            onClick={handleToggleHistory}
+            className="rounded border border-border-strong px-3 py-1 text-xs text-text-secondary hover:border-blue hover:text-text-primary"
+          >
+            História
+          </button>
+          {machines.length > 0 && (
+            <button
+              type="button"
+              onClick={handleToggleSshCopy}
+              title="Skopíruje SSH príkaz, ktorý si spustíš sám vo vlastnom termináli -- appka pri tomto nič nevykonáva."
+              className="rounded border border-border-strong px-3 py-1 text-xs text-text-secondary hover:border-blue hover:text-text-primary"
+            >
+              Kopírovať ako SSH príkaz
+            </button>
+          )}
           {aiAvailable && (
             <button
               type="button"
@@ -447,14 +649,80 @@ export default function ScriptDetail() {
           )}
         </div>
       </div>
+      {sshCopyOpen && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-panel p-3">
+          <span className="text-xs text-text-secondary">Cieľový stroj:</span>
+          <select
+            value={sshCopyMachineId}
+            onChange={(e) => setSshCopyMachineId(e.target.value)}
+            className="rounded border border-border-strong bg-bg px-2 py-1 text-xs text-text-primary"
+          >
+            {machines.map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={handleCopySshCommand}
+            className="rounded bg-blue px-3 py-1 text-xs font-medium text-white hover:bg-blue-light"
+          >
+            {sshCopied ? 'Skopírované ✓' : 'Kopírovať príkaz'}
+          </button>
+          <span className="text-xs text-text-tertiary">
+            Skopíruje sa `ssh ... 'bash -s' &lt;&lt;'EOF'` príkaz -- spusti si ho sám vo svojom termináli, appka pri tomto nič nevykoná.
+          </span>
+        </div>
+      )}
       {script.has_possible_secret && (
         <button
           type="button"
-          onClick={() => setRevealSecrets((v) => !v)}
+          onClick={() => {
+            if (revealSecrets) {
+              setRevealSecrets(false)
+            } else {
+              setRevealError('')
+              setRevealPassword('')
+              setRevealPrompt(true)
+            }
+          }}
           className="mb-2 text-xs text-blue-light hover:underline"
         >
           {revealSecrets ? 'Skryť heslá/tokeny' : 'Zobraziť aj s heslami/tokenmi'}
         </button>
+      )}
+      {revealPrompt && (
+        <form
+          onSubmit={handleConfirmReveal}
+          className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-panel p-3"
+        >
+          <span className="text-xs text-text-secondary">Zadaj heslo pre potvrdenie:</span>
+          <input
+            type="password"
+            autoFocus
+            value={revealPassword}
+            onChange={(e) => setRevealPassword(e.target.value)}
+            className="rounded border border-border-strong bg-bg px-2 py-1 text-xs text-text-primary"
+          />
+          <button
+            type="submit"
+            disabled={revealChecking || !revealPassword}
+            className="rounded bg-blue-light px-3 py-1 text-xs font-medium text-bg disabled:opacity-50"
+          >
+            {revealChecking ? 'Overujem...' : 'Potvrdiť'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setRevealPrompt(false)
+              setRevealPassword('')
+              setRevealError('')
+            }}
+            className="rounded border border-border-strong px-3 py-1 text-xs text-text-secondary"
+          >
+            Zrušiť
+          </button>
+          {revealError && <span className="text-xs text-red-400">{revealError}</span>}
+        </form>
       )}
       <pre className="overflow-x-auto rounded-lg border border-border bg-panel p-4 font-mono text-xs text-text-primary">
         {script.has_possible_secret && !revealSecrets ? maskSecrets(script.content) : script.content}
@@ -582,14 +850,53 @@ export default function ScriptDetail() {
             vyžaduje fyzický hardvérový kľúč (napr. FIDO2), heslom sa to nepotvrdí — musíš byť pri
             stroji a dotknúť sa ho.
           </p>
-          <button
-            type="button"
-            onClick={handleRemoteExec}
-            disabled={remoteRunning || (useAdHoc ? !adHoc.host : !remoteMachineId)}
-            className="mt-3 rounded bg-warning px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-          >
-            {remoteRunning ? 'Spúšťam...' : 'Naozaj spustiť'}
-          </button>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleRemoteExec}
+              disabled={remoteRunning || (useAdHoc ? !adHoc.host : !remoteMachineId)}
+              className="rounded bg-warning px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {remoteRunning ? 'Spúšťam...' : 'Naozaj spustiť'}
+            </button>
+            {!useAdHoc && machines.length > 1 && (
+              <button
+                type="button"
+                onClick={handleRemoteExecAll}
+                disabled={runAllRunning}
+                title="Spustí tento skript postupne na všetkých zaregistrovaných strojoch."
+                className="rounded border border-warning px-4 py-2 text-sm font-medium text-warning hover:bg-warning/10 disabled:opacity-50"
+              >
+                {runAllRunning ? 'Spúšťam na všetkých...' : `Spustiť na všetkých (${machines.length})`}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {runAllResults && (
+        <div className="mt-4 flex flex-col gap-3">
+          {runAllResults.map((r, i) => (
+            <div key={i} className="rounded-lg border border-border bg-panel p-4">
+              <h3 className="mb-2 text-xs uppercase tracking-wide text-text-tertiary">
+                {r.machine_name}{' '}
+                {r.exit_code != null && `(exit ${r.exit_code})`}
+                {r.timed_out && ' — TIMEOUT'}
+              </h3>
+              {r.error || r.detail ? (
+                <p className="text-sm text-warning">{r.error || r.detail}</p>
+              ) : (
+                <>
+                  {r.stdout && (
+                    <pre className="mb-2 overflow-x-auto whitespace-pre-wrap text-xs text-text-primary">{r.stdout}</pre>
+                  )}
+                  {r.stderr && (
+                    <pre className="overflow-x-auto whitespace-pre-wrap text-xs text-warning">{r.stderr}</pre>
+                  )}
+                </>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
@@ -632,6 +939,27 @@ export default function ScriptDetail() {
                 <pre className="overflow-x-auto whitespace-pre-wrap text-xs text-warning">{sandboxResult.stderr}</pre>
               )}
             </>
+          )}
+        </div>
+      )}
+
+      {historyOpen && (
+        <div className="mt-4 rounded-lg border border-border bg-panel p-4">
+          <h3 className="mb-3 text-xs uppercase tracking-wide text-text-tertiary">História</h3>
+          {historyLoading && <p className="text-sm text-text-tertiary">Načítavam...</p>}
+          {!historyLoading && history.length === 0 && (
+            <p className="text-sm text-text-tertiary">Zatiaľ žiadna zaznamenaná akcia pre tento skript.</p>
+          )}
+          {!historyLoading && history.length > 0 && (
+            <div className="flex flex-col gap-2">
+              {history.map((h) => (
+                <div key={h.id} className="rounded bg-ink px-3 py-2 text-xs text-text-secondary">
+                  {new Date(h.created_at).toLocaleString('sk-SK')} —{' '}
+                  <span className="font-medium text-text-primary">{ACTION_LABELS[h.action] || h.action}</span>
+                  {h.detail && <span className="text-text-tertiary"> ({h.detail})</span>}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}
