@@ -22,10 +22,10 @@ export const api = {
     request('/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
   logout: () => request('/auth/logout', { method: 'POST' }),
 
-  listScripts: ({ host, tag, q } = {}) => {
+  listScripts: ({ host, tags, q } = {}) => {
     const params = new URLSearchParams()
     if (host) params.set('host', host)
-    if (tag) params.set('tag', tag)
+    for (const t of tags || []) params.append('tag', t)
     if (q) params.set('q', q)
     const qs = params.toString()
     return request(`/scripts${qs ? `?${qs}` : ''}`)
@@ -46,6 +46,7 @@ export const api = {
     }),
 
   hosts: () => request('/scripts/meta/hosts'),
+  tags: () => request('/scripts/meta/tags'),
   settings: () => request('/settings'),
 
   aiStatus: () => request('/ai/status'),

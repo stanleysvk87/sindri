@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.auth import require_auth
 from app.db import get_conn
@@ -25,7 +25,11 @@ def _row_to_dict(row):
 
 
 @router.get("")
-def list_scripts(host: str | None = None, tag: str | None = None, q: str | None = None):
+def list_scripts(
+    host: str | None = None,
+    tag: list[str] = Query(default=[]),
+    q: str | None = None,
+):
     clauses = []
     params: list = []
 
@@ -33,8 +37,12 @@ def list_scripts(host: str | None = None, tag: str | None = None, q: str | None 
         clauses.append("host = ?")
         params.append(host)
     if tag:
-        clauses.append("(',' || tags || ',') LIKE ?")
-        params.append(f"%,{tag},%")
+        # OR across selected tag chips -- "docker" + "network" means
+        # "either category", the way a category filter is normally read,
+        # not "must have both tags at once".
+        tag_clause = " OR ".join(["(',' || tags || ',') LIKE ?"] * len(tag))
+        clauses.append(f"({tag_clause})")
+        params.extend(f"%,{t},%" for t in tag)
     if q:
         # Searches what the script IS, not just what it's called -- name
         # alone isn't enough when you remember the behavior but not the
@@ -166,3 +174,13 @@ def list_hosts():
             "SELECT DISTINCT host FROM scripts WHERE host != '' ORDER BY host"
         ).fetchall()
     return {"hosts": [r["host"] for r in rows]}
+
+
+@router.get("/meta/tags")
+def list_tags():
+    with get_conn() as conn:
+        rows = conn.execute("SELECT tags FROM scripts WHERE tags != ''").fetchall()
+    tags: set[str] = set()
+    for row in rows:
+        tags.update(t.strip() for t in row["tags"].split(",") if t.strip())
+    return {"tags": sorted(tags)}
