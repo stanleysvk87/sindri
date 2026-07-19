@@ -83,6 +83,9 @@ export default function ScriptDetail() {
   const [reviewing, setReviewing] = useState(false)
   const [review, setReview] = useState('')
   const [reviewError, setReviewError] = useState('')
+  const [sandboxAvailable, setSandboxAvailable] = useState(null)
+  const [sandboxRunning, setSandboxRunning] = useState(false)
+  const [sandboxResult, setSandboxResult] = useState(null)
 
   function reload() {
     api.getScript(id).then(setScript).catch(() => setError('Skript sa nenašiel.'))
@@ -91,6 +94,7 @@ export default function ScriptDetail() {
   useEffect(reload, [id])
   useEffect(() => {
     api.aiStatus().then((s) => setAiAvailable(s.available)).catch(() => setAiAvailable(false))
+    api.sandboxStatus().then((s) => setSandboxAvailable(s.available)).catch(() => setSandboxAvailable(false))
   }, [])
 
   async function save(field, value) {
@@ -121,6 +125,19 @@ export default function ScriptDetail() {
       setReviewError('AI review zlyhal alebo nie je dostupný.')
     } finally {
       setReviewing(false)
+    }
+  }
+
+  async function handleSandboxRun() {
+    setSandboxRunning(true)
+    setSandboxResult(null)
+    try {
+      const result = await api.sandboxRun(script.content)
+      setSandboxResult(result)
+    } catch {
+      setSandboxResult({ error: 'Sandbox beh zlyhal.' })
+    } finally {
+      setSandboxRunning(false)
     }
   }
 
@@ -210,6 +227,17 @@ export default function ScriptDetail() {
               {reviewing ? 'AI kontroluje...' : 'Skontrolovať cez AI'}
             </button>
           )}
+          {sandboxAvailable && (
+            <button
+              type="button"
+              onClick={handleSandboxRun}
+              disabled={sandboxRunning}
+              title="Izolovaný, jednorazový kontajner: bez siete, limitovaná pamäť/čas, zahodený po behu."
+              className="rounded border border-border-strong px-3 py-1 text-xs text-text-secondary hover:border-blue hover:text-text-primary disabled:opacity-50"
+            >
+              {sandboxRunning ? 'Beží v sandboxe...' : 'Testovať v sandboxe'}
+            </button>
+          )}
           <button
             type="button"
             disabled
@@ -223,6 +251,27 @@ export default function ScriptDetail() {
       <pre className="overflow-x-auto rounded-lg border border-border bg-panel p-4 font-mono text-xs text-text-primary">
         {script.content}
       </pre>
+
+      {sandboxResult && (
+        <div className="mt-4 rounded-lg border border-border bg-panel p-4">
+          <h3 className="mb-2 text-xs uppercase tracking-wide text-text-tertiary">
+            Sandbox výstup {sandboxResult.exit_code != null && `(exit ${sandboxResult.exit_code})`}
+            {sandboxResult.timed_out && ' — TIMEOUT'}
+          </h3>
+          {sandboxResult.error ? (
+            <p className="text-sm text-warning">{sandboxResult.error}</p>
+          ) : (
+            <>
+              {sandboxResult.stdout && (
+                <pre className="mb-2 overflow-x-auto whitespace-pre-wrap text-xs text-text-primary">{sandboxResult.stdout}</pre>
+              )}
+              {sandboxResult.stderr && (
+                <pre className="overflow-x-auto whitespace-pre-wrap text-xs text-warning">{sandboxResult.stderr}</pre>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {reviewError && <p className="mt-3 text-sm text-warning">{reviewError}</p>}
       {review && (

@@ -74,3 +74,8 @@ class AIGenerateRequest(BaseModel):
 class AIReviewRequest(BaseModel):
     name: str
     content: str
+
+
+class SandboxRunRequest(BaseModel):
+    content: str
+    script_type: str | None = None

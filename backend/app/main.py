@@ -7,6 +7,7 @@ from app.auth import require_auth
 from app.db import init_db
 from app.routes_ai import router as ai_router
 from app.routes_auth import router as auth_router
+from app.routes_sandbox import router as sandbox_router
 from app.routes_scripts import router as scripts_router
 
 app = FastAPI(title="sindri")
@@ -25,6 +26,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(scripts_router)
 app.include_router(ai_router)
+app.include_router(sandbox_router)
 
 
 @app.on_event("startup")

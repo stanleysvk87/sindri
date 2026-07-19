@@ -8,6 +8,10 @@ services:
       # below -- whichever is actually available. See docs/AI_FEATURES.md.
       SINDRI_AI_PROVIDER_MODE: ${SINDRI_AI_PROVIDER_MODE:-auto}
       SINDRI_ANTHROPIC_API_KEY: ${SINDRI_ANTHROPIC_API_KEY:-}
+      # Requires the docker.sock mount below to actually work -- read
+      # docs/SANDBOX.md before turning this on, it's a real trust
+      # trade-off, not a free safety win.
+      SINDRI_SANDBOX_ENABLED: ${SINDRI_SANDBOX_ENABLED:-false}
     volumes:
       - sindri-data:/data
       # Mount whatever script folders you want to be able to scan/import
@@ -25,6 +29,13 @@ services:
       # - ${SINDRI_CLAUDE_BIN_HOST_PATH}:/usr/local/bin/claude:ro
       # - ${HOME}/.codex:/home/sindri/.codex
       # - ${SINDRI_CODEX_BIN_HOST_PATH}:/usr/local/bin/codex:ro
+      #
+      # Optional -- "Testovať v sandboxe" (isolated one-off container per
+      # run, see docs/SANDBOX.md). Grants the backend the ability to talk
+      # to the host's Docker daemon (Docker-outside-of-Docker), which is
+      # itself host-root-equivalent power -- only uncomment this on a
+      # host you trust to run this backend with that level of access.
+      # - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
   frontend:

@@ -53,4 +53,8 @@ export const api = {
     request('/ai/generate', { method: 'POST', body: JSON.stringify({ description }) }),
   aiReview: (name, content) =>
     request('/ai/review', { method: 'POST', body: JSON.stringify({ name, content }) }),
+
+  sandboxStatus: () => request('/sandbox/status'),
+  sandboxRun: (content, script_type) =>
+    request('/sandbox/run', { method: 'POST', body: JSON.stringify({ content, script_type }) }),
 }
