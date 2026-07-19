@@ -76,6 +76,17 @@ class AIReviewRequest(BaseModel):
     content: str
 
 
+class AIChatMessage(BaseModel):
+    role: str  # "user" | "assistant"
+    text: str
+
+
+class AIChatRequest(BaseModel):
+    name: str
+    content: str
+    messages: list[AIChatMessage]
+
+
 class SandboxRunRequest(BaseModel):
     content: str
     script_type: str | None = None
@@ -86,9 +97,33 @@ class MachineCreate(BaseModel):
     host: str
     port: int = 22
     ssh_user: str
-    ssh_key_path: str
+    auth_type: str = "key"  # "key" | "password"
+    ssh_key_path: str = ""  # required if auth_type == "key"
+
+
+class AdHocConnection(BaseModel):
+    """A machine's connection details supplied inline at run time,
+    instead of picking a saved one -- for the "no machine saved yet,
+    just fill in details and run once" flow."""
+    host: str
+    port: int = 22
+    ssh_user: str
+    auth_type: str = "key"
+    ssh_key_path: str = ""
+    save_as_name: str | None = None  # if set, persist the connection (never the password) after running
 
 
 class RemoteExecRequest(BaseModel):
-    machine_id: int
+    machine_id: int | None = None
+    connection: AdHocConnection | None = None  # used when machine_id is None
     sudo_password: str | None = None
+    ssh_password: str | None = None
+
+
+class AIConfigUpdate(BaseModel):
+    provider_mode: str | None = None  # auto | claude_cli | codex_cli | anthropic_api
+    anthropic_api_key: str | None = None  # empty string clears it
+
+
+class HostStatusRequest(BaseModel):
+    machine_id: int

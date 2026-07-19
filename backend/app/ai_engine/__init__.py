@@ -1,6 +1,8 @@
 import os
 import shutil
 
+from app.settings_store import get_setting
+
 from .anthropic_api import AnthropicAPIProvider
 from .base import AIProvider, AIEngineError
 from .claude_cli import ClaudeCLIProvider
@@ -18,7 +20,9 @@ def _codex_cli() -> AIProvider | None:
 
 
 def _anthropic_api() -> AIProvider | None:
-    api_key = os.environ.get("SINDRI_ANTHROPIC_API_KEY", "")
+    # DB-stored key (set via Settings UI) wins over the env var, so a key
+    # can be added/rotated without redeploying the container.
+    api_key = get_setting("ai_anthropic_api_key") or os.environ.get("SINDRI_ANTHROPIC_API_KEY", "")
     return AnthropicAPIProvider(api_key) if api_key else None
 
 
@@ -28,7 +32,7 @@ def get_provider_chain() -> list[AIProvider]:
     reuse an existing subscription at no extra cost, the API key is only
     a fallback for hosts without claude/codex installed. See
     docs/AI_FEATURES.md."""
-    mode = os.environ.get("SINDRI_AI_PROVIDER_MODE", "auto")
+    mode = get_setting("ai_provider_mode") or os.environ.get("SINDRI_AI_PROVIDER_MODE", "auto")
 
     if mode == "claude_cli":
         candidates = [_claude_cli()]

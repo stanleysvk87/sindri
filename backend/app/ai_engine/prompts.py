@@ -31,6 +31,25 @@ def build_review_prompt(name: str, content: str) -> str:
     )
 
 
+def build_chat_prompt(name: str, content: str, messages: list[dict]) -> str:
+    """Stateless multi-turn chat: each call re-sends the whole transcript
+    (no CLI session/resume dependency -- simpler and matches the
+    request-per-call shape every other ai_engine call already uses).
+    If the reply should include a revised script, ask for it in a single
+    fenced code block so the frontend can offer to save it."""
+    history = "\n\n".join(f"{m['role'].upper()}: {m['text']}" for m in messages)
+    return (
+        f"You're discussing a script named `{name}` from a homelab script catalog "
+        "with its owner. Here is the current content:\n\n"
+        f"```\n{content}\n```\n\n"
+        f"Conversation so far:\n\n{history}\n\n"
+        "Reply to the last user message. Keep it conversational and concise. If "
+        "you're proposing a revised/fixed version of the script, put the FULL "
+        "updated script in exactly one fenced code block so it can be saved "
+        "directly -- don't show a diff or partial snippet."
+    )
+
+
 def strip_code_fences(text: str) -> str:
     """Defensive cleanup: models sometimes wrap output in ```bash ... ```
     even when told not to. Strip a leading/trailing fence line if present,

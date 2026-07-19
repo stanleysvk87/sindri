@@ -23,8 +23,15 @@ def get_available_keys():
 
 @router.post("")
 def add_machine(payload: MachineCreate):
+    if payload.auth_type == "key" and not payload.ssh_key_path:
+        raise HTTPException(status_code=400, detail="ssh_key_path je povinný pre auth_type=key")
     return create_machine(
-        payload.name, payload.host, payload.port, payload.ssh_user, payload.ssh_key_path
+        payload.name,
+        payload.host,
+        payload.port,
+        payload.ssh_user,
+        payload.auth_type,
+        payload.ssh_key_path,
     )
 
 

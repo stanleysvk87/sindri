@@ -15,13 +15,15 @@ def get_machine(machine_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-def create_machine(name: str, host: str, port: int, ssh_user: str, ssh_key_path: str) -> dict:
+def create_machine(
+    name: str, host: str, port: int, ssh_user: str, auth_type: str, ssh_key_path: str = ""
+) -> dict:
     now = datetime.now(timezone.utc).isoformat()
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO machines (name, host, port, ssh_user, ssh_key_path, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (name, host, port, ssh_user, ssh_key_path, now),
+            "INSERT INTO machines (name, host, port, ssh_user, auth_type, ssh_key_path, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (name, host, port, ssh_user, auth_type, ssh_key_path, now),
         )
         row = conn.execute("SELECT * FROM machines WHERE id = ?", (cur.lastrowid,)).fetchone()
     return dict(row)

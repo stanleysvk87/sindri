@@ -3,8 +3,10 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # openssh-client: needed for real remote execution (app/remote_exec.py)
-# over SSH to registered managed machines.
-RUN apt-get update && apt-get install -y --no-install-recommends openssh-client \
+# over SSH to registered managed machines. sshpass: only for machines
+# registered with auth_type=password (no mounted key) -- password is
+# always passed via the SSHPASS env var, never argv.
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-client sshpass \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

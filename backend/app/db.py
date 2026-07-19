@@ -41,13 +41,27 @@ CREATE TABLE IF NOT EXISTS seed_state (
     seeded_at TEXT NOT NULL
 );
 
+-- Generic key/value overrides editable from Settings (currently just AI
+-- provider mode + API key) -- takes priority over the env var default
+-- when present, so a UI change doesn't require redeploying the
+-- container. Absence of a key means "use the env var".
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- auth_type 'key' -> ssh_key_path is a path already mounted from the
+-- host (see ssh_keys.py). auth_type 'password' -> ssh_key_path stays
+-- empty; the SSH password itself is NEVER stored here, same rule as the
+-- sudo password -- entered fresh in the UI on every run.
 CREATE TABLE IF NOT EXISTS machines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     host TEXT NOT NULL,
     port INTEGER NOT NULL DEFAULT 22,
     ssh_user TEXT NOT NULL,
-    ssh_key_path TEXT NOT NULL,
+    auth_type TEXT NOT NULL DEFAULT 'key',
+    ssh_key_path TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 
@@ -69,7 +83,20 @@ def init_db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+    _migrate()
     seed_templates()
+
+
+def _migrate():
+    """Small ad-hoc migrations for columns added after a table already
+    existed in the wild -- SQLite has no `ADD COLUMN IF NOT EXISTS`, so
+    check pragma table_info first. Kept minimal on purpose: this is a
+    single-tenant app with one DB file, not a project that needs a real
+    migration framework yet."""
+    with get_conn() as conn:
+        existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(machines)")}
+        if "auth_type" not in existing_cols:
+            conn.execute("ALTER TABLE machines ADD COLUMN auth_type TEXT NOT NULL DEFAULT 'key'")
 
 
 def seed_templates():

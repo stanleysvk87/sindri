@@ -42,7 +42,12 @@ def _decode(value) -> str:
     return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
 
 
-def run_remote(machine: dict, content: str, sudo_password: str | None = None) -> dict:
+def run_remote(
+    machine: dict,
+    content: str,
+    sudo_password: str | None = None,
+    ssh_password: str | None = None,
+) -> dict:
     """sudo_password is optional and off by default -- most catalog
     scripts (health checks, status reports, read-only diagnostics) don't
     need root, and forcing a sudo prompt on every single run would also
@@ -51,20 +56,37 @@ def run_remote(machine: dict, content: str, sudo_password: str | None = None) ->
     physical touch on a FIDO2 hardware key -- there is no password path
     for it remotely, by design, and no amount of retrying here changes
     that). Pass sudo_password only when the script actually needs root
-    on a machine with normal password-based sudo."""
+    on a machine with normal password-based sudo.
+
+    ssh_password is for machines with auth_type='password' (no key
+    mounted) -- also never persisted, entered fresh per run, same rule as
+    sudo_password. Needs `sshpass` since plain openssh has no
+    non-interactive password path; passed via the SSHPASS env var (`-e`),
+    never as a CLI arg, so it never shows up in `ps` output."""
     if not remote_exec_enabled():
         raise RemoteExecDisabledError("Vzdialené spustenie je vypnuté (SINDRI_REMOTE_EXEC_ENABLED=false).")
 
+    auth_type = machine.get("auth_type", "key")
+    if auth_type == "password" and not ssh_password:
+        raise RemoteExecError("Tento stroj používa heslové prihlásenie -- SSH heslo je povinné.")
+
     target = f"{machine['ssh_user']}@{machine['host']}"
-    ssh_base = [
-        "ssh",
-        "-i", machine["ssh_key_path"],
+    ssh_opts = [
         "-o", "StrictHostKeyChecking=accept-new",
-        "-o", "BatchMode=yes",  # never let ssh itself fall back to an interactive prompt we can't answer
+        "-o", "BatchMode=yes" if auth_type == "key" else "BatchMode=no",
         "-o", "ConnectTimeout=10",
         "-p", str(machine["port"]),
-        target,
     ]
+
+    env = None
+    if auth_type == "password":
+        # sshpass -e reads the password from $SSHPASS -- never argv, never
+        # written to disk. BatchMode must be "no" here or ssh refuses to
+        # even try password auth.
+        ssh_base = ["sshpass", "-e", "ssh", *ssh_opts, target]
+        env = {**os.environ, "SSHPASS": ssh_password}
+    else:
+        ssh_base = ["ssh", "-i", machine["ssh_key_path"], *ssh_opts, target]
 
     if sudo_password:
         # -p '' empties sudo's own prompt text so it never mixes into
@@ -85,6 +107,7 @@ def run_remote(machine: dict, content: str, sudo_password: str | None = None) ->
             capture_output=True,
             text=True,
             timeout=REMOTE_EXEC_TIMEOUT_SECONDS,
+            env=env,
         )
         timed_out = False
         exit_code = proc.returncode
@@ -107,6 +130,9 @@ def run_remote(machine: dict, content: str, sudo_password: str | None = None) ->
         # Never let the password leak into what the UI shows, even though
         # -p '' should already suppress sudo's own prompt text.
         stderr = stderr.replace(sudo_password, "***")
+    if ssh_password:
+        stdout = stdout.replace(ssh_password, "***")
+        stderr = stderr.replace(ssh_password, "***")
 
     return {
         "stdout": stdout[:MAX_OUTPUT_CHARS],

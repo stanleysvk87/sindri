@@ -11,6 +11,8 @@ export default function ScriptList() {
   const [q, setQ] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [visibleCount, setVisibleCount] = useState(40)
+  const PAGE_SIZE = 40
 
   useEffect(() => {
     api.hosts().then((r) => setHosts(r.hosts)).catch(() => {})
@@ -22,7 +24,10 @@ export default function ScriptList() {
     const timeout = setTimeout(() => {
       api
         .listScripts({ host: host || undefined, tags: [...selectedTags], q: q || undefined })
-        .then((r) => setScripts(r.scripts))
+        .then((r) => {
+          setScripts(r.scripts)
+          setVisibleCount(PAGE_SIZE) // nový filter/hľadanie -- začni znova od prvej strany
+        })
         .catch(() => setError('Nepodarilo sa načítať zoznam.'))
         .finally(() => setLoading(false))
     }, 200) // debounce fulltext hľadania
@@ -96,9 +101,14 @@ export default function ScriptList() {
       {!loading && scripts.length === 0 && (
         <p className="text-text-tertiary">Žiadne skripty nenájdené.</p>
       )}
+      {scripts.length > 0 && (
+        <p className="mb-3 text-xs text-text-tertiary">
+          {Math.min(visibleCount, scripts.length)} z {scripts.length}
+        </p>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
-        {scripts.map((s) => (
+        {scripts.slice(0, visibleCount).map((s) => (
           <Link
             key={s.id}
             to={`/scripts/${s.id}`}
@@ -145,6 +155,16 @@ export default function ScriptList() {
           </Link>
         ))}
       </div>
+
+      {visibleCount < scripts.length && (
+        <button
+          type="button"
+          onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}
+          className="mt-4 w-full rounded border border-border-strong py-2 text-sm text-text-secondary hover:border-blue hover:text-text-primary"
+        >
+          Zobraziť ďalších {Math.min(PAGE_SIZE, scripts.length - visibleCount)}
+        </button>
+      )}
     </div>
   )
 }

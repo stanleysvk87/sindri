@@ -12,13 +12,13 @@ export default function Layout({ children }) {
   return (
     <div className="min-h-screen bg-ink text-text-primary">
       <header className="border-b border-border bg-panel">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-          <Link to="/" className="flex items-center gap-2">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 sm:px-6 sm:py-4">
+          <Link to="/" className="flex shrink-0 items-center gap-2">
             <span className="text-lg font-semibold tracking-tight text-text-primary">
               sin<span className="text-gold">dri</span>
             </span>
           </Link>
-          <nav className="flex items-center gap-4 text-sm">
+          <nav className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm sm:gap-x-4">
             <Link to="/" className="text-text-secondary hover:text-text-primary">
               Katalóg
             </Link>

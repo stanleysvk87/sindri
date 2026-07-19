@@ -54,6 +54,8 @@ export const api = {
     request('/ai/generate', { method: 'POST', body: JSON.stringify({ description }) }),
   aiReview: (name, content) =>
     request('/ai/review', { method: 'POST', body: JSON.stringify({ name, content }) }),
+  aiChat: (name, content, messages) =>
+    request('/ai/chat', { method: 'POST', body: JSON.stringify({ name, content, messages }) }),
 
   sandboxStatus: () => request('/sandbox/status'),
   sandboxRun: (content, script_type) =>
@@ -63,12 +65,22 @@ export const api = {
   availableKeys: () => request('/machines/available-keys'),
   addMachine: (payload) => request('/machines', { method: 'POST', body: JSON.stringify(payload) }),
   deleteMachine: (id) => request(`/machines/${id}`, { method: 'DELETE' }),
-  remoteExec: (scriptId, machine_id, sudo_password) =>
+  remoteExec: (scriptId, { machine_id, connection, sudo_password, ssh_password }) =>
     request(`/scripts/${scriptId}/remote-exec`, {
       method: 'POST',
-      body: JSON.stringify({ machine_id, sudo_password: sudo_password || null }),
+      body: JSON.stringify({
+        machine_id: machine_id ?? null,
+        connection: connection ?? null,
+        sudo_password: sudo_password || null,
+        ssh_password: ssh_password || null,
+      }),
     }),
 
   auditLog: () => request('/settings/audit-log'),
   stats: () => request('/settings/stats'),
+  aiConfig: () => request('/settings/ai'),
+  updateAiConfig: (payload) =>
+    request('/settings/ai', { method: 'PUT', body: JSON.stringify(payload) }),
+  hostStatus: (machine_id) =>
+    request('/settings/host-status', { method: 'POST', body: JSON.stringify({ machine_id }) }),
 }

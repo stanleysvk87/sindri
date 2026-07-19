@@ -81,8 +81,10 @@ export default function ScriptDetail() {
   const [error, setError] = useState('')
   const [aiAvailable, setAiAvailable] = useState(null)
   const [reviewing, setReviewing] = useState(false)
-  const [review, setReview] = useState('')
   const [reviewError, setReviewError] = useState('')
+  const [chatMessages, setChatMessages] = useState([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatSending, setChatSending] = useState(false)
   const [sandboxAvailable, setSandboxAvailable] = useState(null)
   const [sandboxRunning, setSandboxRunning] = useState(false)
   const [sandboxResult, setSandboxResult] = useState(null)
@@ -94,6 +96,13 @@ export default function ScriptDetail() {
   const [remoteUseSudo, setRemoteUseSudo] = useState(false)
   const [remoteRunning, setRemoteRunning] = useState(false)
   const [remoteResult, setRemoteResult] = useState(null)
+  const [useAdHoc, setUseAdHoc] = useState(false)
+  const [adHoc, setAdHoc] = useState({
+    host: '', port: 22, ssh_user: 'stanley', auth_type: 'key', ssh_key_path: '',
+  })
+  const [adHocSshPassword, setAdHocSshPassword] = useState('')
+  const [adHocSaveName, setAdHocSaveName] = useState('')
+  const [availableKeys, setAvailableKeys] = useState([])
 
   function reload() {
     api.getScript(id).then(setScript).catch(() => setError('Skript sa nenašiel.'))
@@ -107,6 +116,10 @@ export default function ScriptDetail() {
     api.machines().then((r) => {
       setMachines(r.machines)
       if (r.machines.length > 0) setRemoteMachineId(String(r.machines[0].id))
+    }).catch(() => {})
+    api.availableKeys().then((r) => {
+      setAvailableKeys(r.keys)
+      if (r.keys.length > 0) setAdHoc((a) => ({ ...a, ssh_key_path: r.keys[0] }))
     }).catch(() => {})
   }, [])
 
@@ -130,15 +143,57 @@ export default function ScriptDetail() {
   async function handleReview() {
     setReviewing(true)
     setReviewError('')
-    setReview('')
+    setChatMessages([])
     try {
       const result = await api.aiReview(script.name, script.content)
-      setReview(result.review)
+      setChatMessages([{ role: 'assistant', text: result.review }])
     } catch {
       setReviewError('AI review zlyhal alebo nie je dostupný.')
     } finally {
       setReviewing(false)
     }
+  }
+
+  async function handleChatSend() {
+    if (!chatInput.trim()) return
+    const nextMessages = [...chatMessages, { role: 'user', text: chatInput.trim() }]
+    setChatMessages(nextMessages)
+    setChatInput('')
+    setChatSending(true)
+    try {
+      const result = await api.aiChat(script.name, script.content, nextMessages)
+      setChatMessages([...nextMessages, { role: 'assistant', text: result.reply }])
+    } catch {
+      setChatMessages([...nextMessages, { role: 'assistant', text: '(chyba -- odpoveď zlyhala)' }])
+    } finally {
+      setChatSending(false)
+    }
+  }
+
+  function extractCodeBlock(text) {
+    const match = text.match(/```[a-zA-Z]*\n([\s\S]*?)```/)
+    return match ? match[1].trimEnd() : null
+  }
+
+  async function handleSaveAsNew(code) {
+    const name = prompt('Meno pre nový skript:', `${script.name.replace(/\.sh$|\.py$/, '')}-upravene.sh`)
+    if (!name) return
+    const created = await api.importPaste({
+      name,
+      content: code,
+      host: script.host,
+      tags: script.tags,
+      run_mode: script.run_mode,
+      short_description: `Upravené cez AI chat z ${script.name}`,
+      source_ref: `AI chat, pôvodne ${script.name}`,
+    })
+    navigate(`/scripts/${created.id}`)
+  }
+
+  async function handleReplaceContent(code) {
+    if (!confirm('Nahradiť obsah tohto skriptu upravenou verziou z AI chatu?')) return
+    await save('content', code)
+    setChatMessages((msgs) => [...msgs, { role: 'assistant', text: '(obsah skriptu bol nahradený)' }])
   }
 
   async function handleSandboxRun() {
@@ -158,24 +213,31 @@ export default function ScriptDetail() {
     setRemoteRunning(true)
     setRemoteResult(null)
     try {
-      const result = await api.remoteExec(
-        id,
-        Number(remoteMachineId),
-        remoteUseSudo ? remoteSudoPassword : null
-      )
+      const payload = useAdHoc
+        ? {
+            connection: {
+              ...adHoc,
+              save_as_name: adHocSaveName.trim() || null,
+            },
+            sudo_password: remoteUseSudo ? remoteSudoPassword : null,
+            ssh_password: adHoc.auth_type === 'password' ? adHocSshPassword : null,
+          }
+        : {
+            machine_id: Number(remoteMachineId),
+            sudo_password: remoteUseSudo ? remoteSudoPassword : null,
+          }
+      const result = await api.remoteExec(id, payload)
       setRemoteResult(result)
+      if (result.saved_machine_id) {
+        api.machines().then((r) => setMachines(r.machines)).catch(() => {})
+      }
     } catch (err) {
       setRemoteResult({ error: err.message || 'Vzdialené spustenie zlyhalo.' })
     } finally {
       setRemoteRunning(false)
       setRemoteSudoPassword('')
+      setAdHocSshPassword('')
     }
-  }
-
-  async function handleAppendReviewToNotes() {
-    const combined = script.notes ? `${script.notes}\n\n--- AI review ---\n${review}` : `--- AI review ---\n${review}`
-    await save('notes', combined)
-    setReview('')
   }
 
   if (error) return <p className="text-warning">{error}</p>
@@ -269,22 +331,17 @@ export default function ScriptDetail() {
               {sandboxRunning ? 'Beží v sandboxe...' : 'Testovať v sandboxe'}
             </button>
           )}
-          {remoteExecEnabled && machines.length > 0 && (
+          {remoteExecEnabled && (
             <button
               type="button"
-              onClick={() => setRemotePanelOpen((v) => !v)}
+              onClick={() => {
+                if (machines.length === 0) setUseAdHoc(true)
+                setRemotePanelOpen((v) => !v)
+              }}
               className="rounded border border-border-strong px-3 py-1 text-xs text-text-secondary hover:border-blue hover:text-text-primary"
             >
               Spustiť na diaľku
             </button>
-          )}
-          {remoteExecEnabled && machines.length === 0 && (
-            <span
-              title="Zaregistruj aspoň jeden stroj v Nastaveniach."
-              className="cursor-not-allowed rounded border border-border-strong px-3 py-1 text-xs text-text-tertiary opacity-50"
-            >
-              Spustiť na diaľku
-            </span>
           )}
           {!remoteExecEnabled && (
             <button
@@ -307,7 +364,19 @@ export default function ScriptDetail() {
           <h3 className="mb-3 text-xs uppercase tracking-wide text-text-tertiary">
             Spustiť na diaľku
           </h3>
-          <div className="grid gap-3 sm:grid-cols-2">
+
+          {machines.length > 0 && (
+            <label className="mb-3 flex items-center gap-2 text-sm text-text-secondary">
+              <input
+                type="checkbox"
+                checked={useAdHoc}
+                onChange={(e) => setUseAdHoc(e.target.checked)}
+              />
+              Iný stroj (bez uloženého záznamu)
+            </label>
+          )}
+
+          {!useAdHoc ? (
             <select
               value={remoteMachineId}
               onChange={(e) => setRemoteMachineId(e.target.value)}
@@ -319,15 +388,85 @@ export default function ScriptDetail() {
                 </option>
               ))}
             </select>
-            <label className="flex items-center gap-2 text-sm text-text-secondary">
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
               <input
-                type="checkbox"
-                checked={remoteUseSudo}
-                onChange={(e) => setRemoteUseSudo(e.target.checked)}
+                placeholder="Host (IP alebo hostname)"
+                value={adHoc.host}
+                onChange={(e) => setAdHoc((a) => ({ ...a, host: e.target.value }))}
+                className="rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
               />
-              spustiť cez sudo
-            </label>
-          </div>
+              <input
+                placeholder="SSH user"
+                value={adHoc.ssh_user}
+                onChange={(e) => setAdHoc((a) => ({ ...a, ssh_user: e.target.value }))}
+                className="rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
+              />
+              <input
+                type="number"
+                placeholder="Port"
+                value={adHoc.port}
+                onChange={(e) => setAdHoc((a) => ({ ...a, port: Number(e.target.value) }))}
+                className="rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
+              />
+              <div className="flex items-center gap-4 text-sm text-text-secondary">
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="radio"
+                    checked={adHoc.auth_type === 'key'}
+                    onChange={() => setAdHoc((a) => ({ ...a, auth_type: 'key' }))}
+                  />
+                  kľúč
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="radio"
+                    checked={adHoc.auth_type === 'password'}
+                    onChange={() => setAdHoc((a) => ({ ...a, auth_type: 'password' }))}
+                  />
+                  heslo
+                </label>
+              </div>
+
+              {adHoc.auth_type === 'key' ? (
+                <select
+                  value={adHoc.ssh_key_path}
+                  onChange={(e) => setAdHoc((a) => ({ ...a, ssh_key_path: e.target.value }))}
+                  className="rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue sm:col-span-2"
+                >
+                  {availableKeys.map((k) => (
+                    <option key={k} value={k}>
+                      {k}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="password"
+                  placeholder="SSH heslo (nikdy sa neukladá)"
+                  value={adHocSshPassword}
+                  onChange={(e) => setAdHocSshPassword(e.target.value)}
+                  className="rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue sm:col-span-2"
+                />
+              )}
+
+              <input
+                placeholder="Uložiť medzi známe stroje ako (voliteľné meno)"
+                value={adHocSaveName}
+                onChange={(e) => setAdHocSaveName(e.target.value)}
+                className="rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue sm:col-span-2"
+              />
+            </div>
+          )}
+
+          <label className="mt-3 flex items-center gap-2 text-sm text-text-secondary">
+            <input
+              type="checkbox"
+              checked={remoteUseSudo}
+              onChange={(e) => setRemoteUseSudo(e.target.checked)}
+            />
+            spustiť cez sudo
+          </label>
           {remoteUseSudo && (
             <input
               type="password"
@@ -345,7 +484,7 @@ export default function ScriptDetail() {
           <button
             type="button"
             onClick={handleRemoteExec}
-            disabled={remoteRunning || !remoteMachineId}
+            disabled={remoteRunning || (useAdHoc ? !adHoc.host : !remoteMachineId)}
             className="mt-3 rounded bg-warning px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
             {remoteRunning ? 'Spúšťam...' : 'Naozaj spustiť'}
@@ -397,19 +536,62 @@ export default function ScriptDetail() {
       )}
 
       {reviewError && <p className="mt-3 text-sm text-warning">{reviewError}</p>}
-      {review && (
+      {chatMessages.length > 0 && (
         <div className="mt-4 rounded-lg border border-border bg-panel p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-xs uppercase tracking-wide text-text-tertiary">AI review</h3>
+          <h3 className="mb-3 text-xs uppercase tracking-wide text-text-tertiary">AI review a rozhovor</h3>
+          <div className="mb-3 grid gap-3">
+            {chatMessages.map((m, i) => {
+              const code = m.role === 'assistant' ? extractCodeBlock(m.text) : null
+              return (
+                <div
+                  key={i}
+                  className={`rounded p-3 text-sm ${
+                    m.role === 'user' ? 'bg-fjord text-text-primary' : 'bg-ink text-text-primary'
+                  }`}
+                >
+                  <p className="mb-1 text-[10px] uppercase tracking-wide text-text-tertiary">
+                    {m.role === 'user' ? 'Ty' : 'AI'}
+                  </p>
+                  <p className="whitespace-pre-wrap">{m.text}</p>
+                  {code && (
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleReplaceContent(code)}
+                        className="rounded bg-blue px-3 py-1 text-xs font-medium text-white hover:bg-blue-light"
+                      >
+                        Nahradiť obsah tohto skriptu
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSaveAsNew(code)}
+                        className="rounded border border-border-strong px-3 py-1 text-xs text-text-secondary hover:border-blue hover:text-text-primary"
+                      >
+                        Uložiť ako nový skript
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && !chatSending && handleChatSend()}
+              placeholder="Opýtaj sa AI na review, alebo popíš čo chceš upraviť..."
+              className="flex-1 rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
+            />
             <button
               type="button"
-              onClick={handleAppendReviewToNotes}
-              className="text-xs text-blue-light hover:underline"
+              onClick={handleChatSend}
+              disabled={chatSending || !chatInput.trim()}
+              className="rounded bg-blue px-4 py-2 text-sm font-medium text-white hover:bg-blue-light disabled:opacity-50"
             >
-              pridať do poznámok
+              {chatSending ? '...' : 'Poslať'}
             </button>
           </div>
-          <p className="whitespace-pre-wrap text-sm text-text-primary">{review}</p>
         </div>
       )}
     </div>

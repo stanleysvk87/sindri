@@ -6,7 +6,7 @@ from app.audit import log_action
 from app.auth import require_auth
 from app.db import get_conn
 from app.import_utils import confirm_import, import_path, scan_path
-from app.machines import get_machine
+from app.machines import create_machine, get_machine
 from app.models import (
     ConfirmImportRequest,
     PathImportRequest,
@@ -117,20 +117,53 @@ def remote_exec(script_id: int, payload: RemoteExecRequest):
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")
 
-    machine = get_machine(payload.machine_id)
-    if not machine:
-        raise HTTPException(status_code=404, detail="Machine not found")
+    saved_machine_id = None
+    if payload.machine_id is not None:
+        machine = get_machine(payload.machine_id)
+        if not machine:
+            raise HTTPException(status_code=404, detail="Machine not found")
+        machine_label = machine["name"]
+        saved_machine_id = machine["id"]
+    elif payload.connection is not None:
+        # Ad-hoc: no saved machine, connection details typed in for this
+        # one run. Never touches the machines table unless save_as_name
+        # is set, and even then the password itself is never part of
+        # what gets saved (create_machine has no password field at all).
+        c = payload.connection
+        machine = {
+            "host": c.host,
+            "port": c.port,
+            "ssh_user": c.ssh_user,
+            "auth_type": c.auth_type,
+            "ssh_key_path": c.ssh_key_path,
+        }
+        machine_label = f"{c.ssh_user}@{c.host}"
+    else:
+        raise HTTPException(status_code=400, detail="machine_id alebo connection je povinné")
 
     try:
-        result = run_remote(machine, script["content"], payload.sudo_password)
+        result = run_remote(machine, script["content"], payload.sudo_password, payload.ssh_password)
     except RemoteExecError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
+    if payload.connection is not None and payload.connection.save_as_name:
+        saved = create_machine(
+            payload.connection.save_as_name,
+            payload.connection.host,
+            payload.connection.port,
+            payload.connection.ssh_user,
+            payload.connection.auth_type,
+            payload.connection.ssh_key_path,
+        )
+        saved_machine_id = saved["id"]
+        result["saved_machine_id"] = saved_machine_id
+
+    exit_display = "timeout" if result["timed_out"] else result["exit_code"]
     log_action(
         "remote_exec",
         script_id,
         script["name"],
-        f"machine={machine['name']} exit_code={result['exit_code']} sudo={'yes' if payload.sudo_password else 'no'}",
+        f"machine={machine_label} exit_code={exit_display} sudo={'yes' if payload.sudo_password else 'no'}",
     )
     return result
 
