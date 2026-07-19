@@ -22,14 +22,22 @@ Appka beží na `http://localhost:8420` (port nastaviteľný cez
 
 ## Čo appka vie
 
-- **Katalóg**: hľadanie/filter podľa stroja a tagov, fulltext hľadanie
-  aj v obsahu skriptu, nielen v mene/popise.
-- **Import**: prehľadaj priečinok a vyber, ktoré skripty pridať (s
-  varovaním, ak niektorý vyzerá, že obsahuje heslo/token), alebo vlož
-  obsah ručne.
-- **AI generovanie/review** (voliteľné): pozri `docs/AI_FEATURES.md`.
-- **Vzdialené spustenie**: zámerne nie je implementované, pozri
+- **Katalóg**: hľadanie/filter podľa stroja a klikacích tag chipov
+  (multi-select), fulltext hľadanie aj v obsahu skriptu, nielen v
+  mene/popise.
+- **Import**: prehľadaj priečinok (lokálny mount) a vyber, ktoré skripty
+  pridať (s varovaním, ak niektorý vyzerá, že obsahuje heslo/token),
+  alebo vlož obsah ručne.
+- **AI generovanie/review** (voliteľné, appka funguje aj bez toho): pozri
+  `docs/AI_FEATURES.md`.
+- **Sandbox testovanie** (voliteľné, vypnuté defaultne): izolovaný
+  jednorazový kontajner bez siete/s limitmi, pozri `docs/SANDBOX.md`.
+- **Vzdialené spustenie cez SSH** (voliteľné, vypnuté defaultne):
+  spustí skript na zaregistrovanom stroji, sudo heslo (ak treba) sa
+  zadáva nanovo pri každom behu, nikdy sa neukladá — pozri
   `docs/REMOTE_EXEC.md`.
+- **Nastavenia**: register spravovaných strojov, audit log (kto/kedy/aký
+  skript/aký stroj, nikdy heslo ani plný výstup), prehľad katalógu.
 
 ## Štruktúra
 
