@@ -547,7 +547,17 @@ export default function ScriptDetail() {
       )}
 
       <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <EditableField label="Stroj" value={script.host} onSave={(v) => save('host', v)} placeholder="opi / victus / kdekoľvek" />
+        <div className="min-w-0">
+          <EditableField label="Stroj" value={script.host} onSave={(v) => save('host', v)} placeholder="opi / victus / Claude" />
+          <label className="-mt-2 flex items-center gap-1.5 text-xs text-text-secondary">
+            <input
+              type="checkbox"
+              checked={!!script.works_everywhere}
+              onChange={(e) => save('works_everywhere', e.target.checked)}
+            />
+            Funguje všade
+          </label>
+        </div>
         <EditableField label="Spôsob spustenia" value={script.run_mode} onSave={(v) => save('run_mode', v)} placeholder="manuál / cron / systemd" />
         <EditableField label="Tagy (čiarkou)" value={script.tags} onSave={(v) => save('tags', v)} placeholder="žiadne" />
         <div className="mb-4 min-w-0">

@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS scripts (
     source_ref TEXT NOT NULL DEFAULT '',
     has_possible_secret INTEGER NOT NULL DEFAULT 0,
     is_favorite INTEGER NOT NULL DEFAULT 0,
+    works_everywhere INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -102,6 +103,8 @@ def _migrate():
         script_cols = {row["name"] for row in conn.execute("PRAGMA table_info(scripts)")}
         if "is_favorite" not in script_cols:
             conn.execute("ALTER TABLE scripts ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0")
+        if "works_everywhere" not in script_cols:
+            conn.execute("ALTER TABLE scripts ADD COLUMN works_everywhere INTEGER NOT NULL DEFAULT 0")
 
 
 def seed_templates():

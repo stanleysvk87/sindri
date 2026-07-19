@@ -54,6 +54,8 @@ def _row_to_dict(row):
         d["has_possible_secret"] = bool(d["has_possible_secret"])
     if "is_favorite" in d:
         d["is_favorite"] = bool(d["is_favorite"])
+    if "works_everywhere" in d:
+        d["works_everywhere"] = bool(d["works_everywhere"])
     return d
 
 
@@ -93,7 +95,7 @@ def list_scripts(
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     sql = f"""
         SELECT id, name, host, tags, short_description, run_mode,
-               has_possible_secret, is_favorite, updated_at
+               has_possible_secret, is_favorite, works_everywhere, updated_at
         FROM scripts
         {where}
         ORDER BY is_favorite DESC, name COLLATE NOCASE
@@ -419,8 +421,8 @@ def import_paste(payload: ScriptPasteImport):
             INSERT INTO scripts
                 (name, host, tags, short_description, long_description, notes,
                  content, run_mode, source_type, source_ref, has_possible_secret,
-                 created_at, updated_at)
-            VALUES (?, ?, ?, ?, '', '', ?, ?, 'pasted', ?, ?, ?, ?)
+                 works_everywhere, created_at, updated_at)
+            VALUES (?, ?, ?, ?, '', '', ?, ?, 'pasted', ?, ?, ?, ?, ?)
             """,
             (
                 payload.name,
@@ -431,6 +433,7 @@ def import_paste(payload: ScriptPasteImport):
                 payload.run_mode,
                 payload.source_ref,
                 int(has_secret),
+                int(payload.works_everywhere),
                 now,
                 now,
             ),

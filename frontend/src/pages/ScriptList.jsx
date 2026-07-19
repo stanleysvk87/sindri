@@ -302,6 +302,14 @@ export default function ScriptList() {
               {s.host && (
                 <span className="rounded bg-fjord px-1.5 py-0.5 text-blue-light">{s.host}</span>
               )}
+              {s.works_everywhere ? (
+                <span
+                  title="Funguje na hocijakom stroji"
+                  className="rounded bg-fjord px-1.5 py-0.5 text-success"
+                >
+                  ✓ všade
+                </span>
+              ) : null}
               {s.run_mode && <span className="rounded bg-fjord px-1.5 py-0.5">{s.run_mode}</span>}
               {s.tags
                 .split(',')

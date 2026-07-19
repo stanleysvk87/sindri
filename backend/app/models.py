@@ -38,6 +38,7 @@ class ScriptUpdate(BaseModel):
     notes: str | None = None
     run_mode: str | None = None
     content: str | None = None
+    works_everywhere: bool | None = None
 
 
 class ScriptPasteImport(BaseModel):
@@ -48,6 +49,7 @@ class ScriptPasteImport(BaseModel):
     short_description: str = ""
     run_mode: str = ""
     source_ref: str = ""
+    works_everywhere: bool = False
 
 
 class PathImportRequest(BaseModel):
