@@ -45,7 +45,12 @@ sa fyzicky-viazané sudo cez SSH vôbec nedá potvrdiť**, žiadna zmena v
 appke to nezmení, je to zámerná vlastnosť takto nastaveného stroja.
 Overené priamo proti victusu:
 
-- Bez sudo (`bash -s` priamo) — funguje spoľahlivo, rýchlo (~0.5s).
+- Bez sudo (`bash -s` priamo) — funguje spoľahlivo, rýchlo (~0.5-1.8s).
+- **Zaznamenaná kvirka**: úplne prvé pripojenie na nový stroj (kým sa
+  ešte len zakladá `~/.ssh/known_hosts` v kontajneri) môže raz zabrať
+  celý timeout. Druhý pokus hneď potom bol rýchly a spoľahlivý — ak sa
+  prvé spustenie na nový stroj zdá zaseknuté, skús ho zopakovať predtým,
+  než hľadáš iný problém.
 - So zlým/chýbajúcim heslom — `sudo -S` zlyhá čisto s "incorrect
   password attempts", **skript sa nikdy nespustí**, appka to korektne
   nahlási, žiadny hang, žiadny pád.

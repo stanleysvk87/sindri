@@ -12,6 +12,16 @@ services:
       # docs/SANDBOX.md before turning this on, it's a real trust
       # trade-off, not a free safety win.
       SINDRI_SANDBOX_ENABLED: ${SINDRI_SANDBOX_ENABLED:-false}
+      # claude/codex are installed as version-pinned standalone binaries
+      # reached through a symlink (e.g. ~/.local/bin/claude ->
+      # ~/.local/share/claude/versions/2.1.215) -- mounting just the
+      # symlink's current target would break silently on the next
+      # auto-update. Simplest robust fix: mirror the real host paths
+      # inside the container (same absolute paths, not remapped under
+      # /home/sindri) so every symlink in ~/.local/bin resolves exactly
+      # like it does on the host, version bumps included.
+      HOME: /home/stanley
+      PATH: /home/stanley/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     volumes:
       - sindri-data:/data
       # Mount whatever script folders you want to be able to scan/import
@@ -19,16 +29,16 @@ services:
       # this one for every extra directory you want reachable -- paths
       # here are IN-CONTAINER paths, type the same path in the UI.
       - ./import-sources:/import-sources:ro
-      # Optional -- only needed for AI generate/review via an existing
-      # claude/codex CLI login instead of an API key. All commented out by
-      # default: uncomment on a host that actually has these installed and
-      # logged in. Mirrors Muninn's ai_engine container mounts; see
-      # docs/AI_FEATURES.md for why each path is (:ro) or read-write.
-      # - ${HOME}/.claude:/home/sindri/.claude:ro
-      # - ${HOME}/.claude.json:/home/sindri/.claude.json:ro
-      # - ${SINDRI_CLAUDE_BIN_HOST_PATH}:/usr/local/bin/claude:ro
-      # - ${HOME}/.codex:/home/sindri/.codex
-      # - ${SINDRI_CODEX_BIN_HOST_PATH}:/usr/local/bin/codex:ro
+      # AI generate/review via an existing claude/codex CLI login instead
+      # of an API key. Mirrors Muninn's ai_engine container mounts; see
+      # docs/AI_FEATURES.md for why each path is (:ro) or read-write, and
+      # the HOME/PATH override above for why these mirror host paths
+      # exactly instead of remapping under /home/sindri.
+      - ${HOME}/.claude:/home/stanley/.claude:ro
+      - ${HOME}/.claude.json:/home/stanley/.claude.json:ro
+      - ${HOME}/.local/bin:/home/stanley/.local/bin:ro
+      - ${HOME}/.local/share/claude:/home/stanley/.local/share/claude:ro
+      - ${HOME}/.codex:/home/stanley/.codex
       #
       # Optional -- "Testovať v sandboxe" (isolated one-off container per
       # run, see docs/SANDBOX.md). Grants the backend the ability to talk

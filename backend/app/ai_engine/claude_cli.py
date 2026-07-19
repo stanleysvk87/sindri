@@ -14,9 +14,19 @@ class ClaudeCLIProvider:
         # ai_engine/claude_cli.py -- ziadny variadicky flag (--add-dir a
         # pod.) tu ale ani nepouzivame, kedze negenerujeme z ziadneho
         # suboru, len z textu.
+        #
+        # --disallowedTools: bez tohto claude niekedy interpretuje "napis
+        # skript" ako ulohu na zapisanie suboru a namiesto ciireho textu
+        # vrati "potrebujem povolenie zapisat subor" narativ (zistene pri
+        # testovani 2026-07-19). Odopretim Write/Edit/Bash/Read sa vynuti
+        # cista textova odpoved bez pokusu o nastroj.
         try:
             proc = subprocess.run(
-                ["claude", "-p", prompt, "--output-format", "json"],
+                [
+                    "claude", "-p", prompt,
+                    "--output-format", "json",
+                    "--disallowedTools", "Write,Edit,Bash,Read",
+                ],
                 capture_output=True,
                 text=True,
                 timeout=120,
