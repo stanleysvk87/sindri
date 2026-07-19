@@ -45,6 +45,22 @@ export const api = {
       body: JSON.stringify({ paths, host }),
     }),
 
+  remoteScan: (machine_id, path) =>
+    request('/scripts/import/remote-scan', {
+      method: 'POST',
+      body: JSON.stringify({ machine_id, path }),
+    }),
+  remoteConfirmImport: (machine_id, host, items) =>
+    request('/scripts/import/remote-confirm', {
+      method: 'POST',
+      body: JSON.stringify({ machine_id, host, items }),
+    }),
+  pushScript: (scriptId, { machine_id, target_path } = {}) =>
+    request(`/scripts/${scriptId}/push`, {
+      method: 'POST',
+      body: JSON.stringify({ machine_id: machine_id ?? null, target_path: target_path ?? null }),
+    }),
+
   hosts: () => request('/scripts/meta/hosts'),
   tags: () => request('/scripts/meta/tags'),
   settings: () => request('/settings'),

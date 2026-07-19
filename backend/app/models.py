@@ -37,6 +37,7 @@ class ScriptUpdate(BaseModel):
     long_description: str | None = None
     notes: str | None = None
     run_mode: str | None = None
+    content: str | None = None
 
 
 class ScriptPasteImport(BaseModel):
@@ -61,6 +62,29 @@ class ScanPathRequest(BaseModel):
 class ConfirmImportRequest(BaseModel):
     paths: list[str]
     host: str = ""
+
+
+class RemoteScanRequest(BaseModel):
+    machine_id: int
+    path: str
+
+
+class RemoteImportItem(BaseModel):
+    path: str
+    content: str
+
+
+class RemoteConfirmImportRequest(BaseModel):
+    machine_id: int
+    host: str = ""
+    items: list[RemoteImportItem]
+
+
+class PushBackRequest(BaseModel):
+    # both optional -- if omitted, inferred from the script's own
+    # source_ref (only possible for source_type == 'remote_import')
+    machine_id: int | None = None
+    target_path: str | None = None
 
 
 class LoginRequest(BaseModel):

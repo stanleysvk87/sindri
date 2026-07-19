@@ -2,6 +2,29 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../lib/api'
 
+// Display-only masking (mirrors backend/app/secret_scan.py's heuristics
+// loosely) -- hides likely secrets by default so a shoulder-surf or
+// screenshot doesn't leak them, without needing the server to track
+// which exact substrings matched. Never affects what's actually stored.
+const SECRET_MASK_PATTERNS = [
+  /((?:pass(?:word)?|passwd|pwd)\s*[:=]\s*['"])([^'"]{4,})(['"])/gi,
+  /((?:token|api[_-]?key|secret|apikey)\s*[:=]\s*['"])([^'"]{6,})(['"])/gi,
+  /(bot\d{6,}:)([a-zA-Z0-9_-]{20,})/gi,
+  /(Bearer\s+)([a-zA-Z0-9._-]{10,})/gi,
+]
+
+function maskSecrets(content) {
+  let masked = content
+  for (const re of SECRET_MASK_PATTERNS) {
+    masked = masked.replace(re, (...args) => {
+      const groups = args.slice(1, -2)
+      if (groups.length === 3) return `${groups[0]}••••••••${groups[2]}`
+      return `${groups[0]}••••••••`
+    })
+  }
+  return masked
+}
+
 function EditableField({ label, value, onSave, multiline = false, placeholder = '' }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
@@ -103,12 +126,16 @@ export default function ScriptDetail() {
   const [adHocSshPassword, setAdHocSshPassword] = useState('')
   const [adHocSaveName, setAdHocSaveName] = useState('')
   const [availableKeys, setAvailableKeys] = useState([])
+  const [revealSecrets, setRevealSecrets] = useState(false)
+  const [pushing, setPushing] = useState(false)
+  const [pushResult, setPushResult] = useState(null)
 
   function reload() {
     api.getScript(id).then(setScript).catch(() => setError('Skript sa nenašiel.'))
   }
 
   useEffect(reload, [id])
+  useEffect(() => setRevealSecrets(false), [id])
   useEffect(() => {
     api.aiStatus().then((s) => setAiAvailable(s.available)).catch(() => setAiAvailable(false))
     api.sandboxStatus().then((s) => setSandboxAvailable(s.available)).catch(() => setSandboxAvailable(false))
@@ -196,6 +223,39 @@ export default function ScriptDetail() {
     setChatMessages((msgs) => [...msgs, { role: 'assistant', text: '(obsah skriptu bol nahradený)' }])
   }
 
+  async function handleAskAiToMoveSecrets() {
+    const nextMessages = [
+      ...chatMessages,
+      {
+        role: 'user',
+        text: 'V skripte je natvrdo zapísané heslo/token. Prepíš ho tak, aby sa čítalo z premennej prostredia (napr. ${NAZOV:?chýba premenná NAZOV}), a v odpovedi mi napíš aj presný názov premennej, ktorú mám nastaviť.',
+      },
+    ]
+    setChatMessages(nextMessages)
+    setChatSending(true)
+    try {
+      const result = await api.aiChat(script.name, script.content, nextMessages)
+      setChatMessages([...nextMessages, { role: 'assistant', text: result.reply }])
+    } catch {
+      setChatMessages([...nextMessages, { role: 'assistant', text: '(chyba -- odpoveď zlyhala)' }])
+    } finally {
+      setChatSending(false)
+    }
+  }
+
+  async function handlePush() {
+    setPushing(true)
+    setPushResult(null)
+    try {
+      const result = await api.pushScript(id)
+      setPushResult(result)
+    } catch (err) {
+      setPushResult({ error: err.message || 'Zápis na pôvodný stroj zlyhal.' })
+    } finally {
+      setPushing(false)
+    }
+  }
+
   async function handleSandboxRun() {
     setSandboxRunning(true)
     setSandboxResult(null)
@@ -249,23 +309,55 @@ export default function ScriptDetail() {
         <div>
           <h1 className="text-xl font-semibold text-text-primary">{script.name}</h1>
           <p className="mt-1 text-xs text-text-tertiary">
-            {script.source_type === 'local_import' ? `Import z ${script.source_ref}` : 'Vložené ručne'}
+            {script.source_type === 'local_import' && `Import z ${script.source_ref}`}
+            {script.source_type === 'remote_import' && `Stiahnuté z ${script.source_ref}`}
+            {script.source_type === 'pasted' && 'Vložené ručne'}
             {script.source_ref && script.source_type === 'pasted' && ` · zdroj: ${script.source_ref}`}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleDelete}
-          className="text-xs text-text-tertiary hover:text-warning"
-        >
-          Odstrániť z katalógu
-        </button>
+        <div className="flex items-center gap-3">
+          {script.source_type === 'remote_import' && remoteExecEnabled && (
+            <button
+              type="button"
+              onClick={handlePush}
+              disabled={pushing}
+              title="Zapíše aktuálny obsah naspäť na pôvodné miesto na pôvodnom stroji."
+              className="text-xs text-blue-light hover:underline disabled:opacity-50"
+            >
+              {pushing ? 'Posielam...' : '↑ Push naspäť'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleDelete}
+            className="text-xs text-text-tertiary hover:text-warning"
+          >
+            Odstrániť z katalógu
+          </button>
+        </div>
       </div>
+      {pushResult && (
+        <p className={`mb-4 text-sm ${pushResult.error ? 'text-warning' : 'text-success'}`}>
+          {pushResult.error || `Zapísané na ${pushResult.path} (${pushResult.duration_ms} ms)`}
+        </p>
+      )}
 
       {script.has_possible_secret && (
         <div className="mb-6 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
-          Obsah tohto skriptu vyzerá, že obsahuje heslo alebo token natvrdo v tele. Zváž jeho
-          presun do premennej prostredia pred ďalším zdieľaním.
+          <p className="mb-2">
+            Obsah tohto skriptu vyzerá, že obsahuje heslo alebo token natvrdo v tele. Nižšie je
+            zobrazenie predvolene skryté. Zváž presun do premennej prostredia pred ďalším
+            zdieľaním.
+          </p>
+          {aiAvailable && (
+            <button
+              type="button"
+              onClick={handleAskAiToMoveSecrets}
+              className="rounded border border-warning/40 px-2 py-1 text-xs text-warning hover:bg-warning/10"
+            >
+              Navrhni presun cez AI
+            </button>
+          )}
         </div>
       )}
 
@@ -355,8 +447,17 @@ export default function ScriptDetail() {
           )}
         </div>
       </div>
+      {script.has_possible_secret && (
+        <button
+          type="button"
+          onClick={() => setRevealSecrets((v) => !v)}
+          className="mb-2 text-xs text-blue-light hover:underline"
+        >
+          {revealSecrets ? 'Skryť heslá/tokeny' : 'Zobraziť aj s heslami/tokenmi'}
+        </button>
+      )}
       <pre className="overflow-x-auto rounded-lg border border-border bg-panel p-4 font-mono text-xs text-text-primary">
-        {script.content}
+        {script.has_possible_secret && !revealSecrets ? maskSecrets(script.content) : script.content}
       </pre>
 
       {remotePanelOpen && (

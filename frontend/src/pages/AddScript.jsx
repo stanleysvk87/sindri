@@ -247,6 +247,165 @@ function ScanImportTab() {
   )
 }
 
+function RemoteScanTab() {
+  const [machines, setMachines] = useState([])
+  const [machineId, setMachineId] = useState('')
+  const [path, setPath] = useState('')
+  const [host, setHost] = useState('')
+  const [candidates, setCandidates] = useState(null)
+  const [selected, setSelected] = useState(() => new Set())
+  const [scanning, setScanning] = useState(false)
+  const [error, setError] = useState('')
+  const [status, setStatus] = useState('')
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    api.machines().then((r) => {
+      setMachines(r.machines)
+      if (r.machines.length > 0) {
+        setMachineId(String(r.machines[0].id))
+        setHost(r.machines[0].name)
+      }
+    }).catch(() => {})
+  }, [])
+
+  async function handleScan(e) {
+    e.preventDefault()
+    setError('')
+    setStatus('')
+    setScanning(true)
+    try {
+      const result = await api.remoteScan(Number(machineId), path)
+      setCandidates(result.candidates)
+      setSelected(new Set(result.candidates.filter((c) => !c.already_imported).map((c) => c.path)))
+    } catch (err) {
+      setError(err.message || 'Prehľadávanie zlyhalo.')
+      setCandidates(null)
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  function toggle(path) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      next.has(path) ? next.delete(path) : next.add(path)
+      return next
+    })
+  }
+
+  async function handleImport() {
+    if (selected.size === 0) return
+    const items = candidates
+      .filter((c) => selected.has(c.path))
+      .map((c) => ({ path: c.path, content: c.content }))
+    const result = await api.remoteConfirmImport(Number(machineId), host, items)
+    setStatus(`Pridané: ${result.created}, aktualizované: ${result.updated}.`)
+    setTimeout(() => navigate('/'), 900)
+  }
+
+  if (machines.length === 0) {
+    return (
+      <p className="text-text-tertiary">
+        Žiadne stroje zaregistrované — pridaj aspoň jeden v{' '}
+        <a href="/settings" className="text-blue-light hover:underline">
+          Nastaveniach
+        </a>{' '}
+        predtým, než budeš vedieť prehľadávať vzdialenú cestu.
+      </p>
+    )
+  }
+
+  return (
+    <div>
+      <form onSubmit={handleScan} className="mb-4 flex flex-col gap-3 sm:flex-row">
+        <select
+          value={machineId}
+          onChange={(e) => {
+            setMachineId(e.target.value)
+            const m = machines.find((mm) => String(mm.id) === e.target.value)
+            if (m) setHost(m.name)
+          }}
+          className="rounded border border-border-strong bg-panel px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
+        >
+          {machines.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+        <input
+          type="text"
+          placeholder="/home/stanley/scripts (cesta na vzdialenom stroji)"
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+          className="flex-1 rounded border border-border-strong bg-panel px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
+        />
+        <button
+          type="submit"
+          disabled={scanning || !path}
+          className="rounded bg-blue px-4 py-2 text-sm font-medium text-white hover:bg-blue-light disabled:opacity-40"
+        >
+          {scanning ? 'Prehľadávam...' : 'Prehľadať'}
+        </button>
+      </form>
+
+      {error && <p className="mb-4 text-sm text-warning">{error}</p>}
+      {status && <p className="mb-4 text-sm text-success">{status}</p>}
+
+      {candidates && (
+        <>
+          {candidates.length === 0 ? (
+            <p className="text-text-tertiary">Žiadne .sh/.py súbory nenájdené.</p>
+          ) : (
+            <div className="mb-4 divide-y divide-border rounded-lg border border-border bg-panel">
+              {candidates.map((c) => (
+                <label
+                  key={c.path}
+                  className={`flex items-start gap-3 px-4 py-3 ${c.already_imported ? 'opacity-50' : 'cursor-pointer hover:bg-fjord/30'}`}
+                >
+                  <input
+                    type="checkbox"
+                    disabled={c.already_imported}
+                    checked={selected.has(c.path)}
+                    onChange={() => toggle(c.path)}
+                    className="mt-1"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-text-primary">{c.name}</span>
+                      {c.already_imported && (
+                        <span className="text-[10px] uppercase text-text-tertiary">už v katalógu</span>
+                      )}
+                      {c.has_possible_secret && (
+                        <span className="rounded border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[10px] uppercase text-warning">
+                          secret?
+                        </span>
+                      )}
+                    </div>
+                    <p className="truncate text-xs text-text-tertiary">{c.path}</p>
+                    {c.short_description && (
+                      <p className="mt-0.5 text-sm text-text-secondary">{c.short_description}</p>
+                    )}
+                  </div>
+                </label>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            disabled={selected.size === 0}
+            onClick={handleImport}
+            className="rounded bg-blue px-4 py-2 text-sm font-medium text-white hover:bg-blue-light disabled:opacity-40"
+          >
+            Importovať vybrané ({selected.size})
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 function PasteImportTab() {
   const [form, setForm] = useState({
     name: '',
@@ -346,6 +505,7 @@ export default function AddScript() {
       <div className="mb-6 flex gap-1 border-b border-border">
         {[
           ['scan', 'Prehľadať priečinok'],
+          ['remote', 'Vzdialená cesta (SSH)'],
           ['paste', 'Vložiť obsah'],
           ['ai', 'Vygenerovať cez AI'],
         ].map(([key, label]) => (
@@ -364,6 +524,7 @@ export default function AddScript() {
         ))}
       </div>
       {tab === 'scan' && <ScanImportTab />}
+      {tab === 'remote' && <RemoteScanTab />}
       {tab === 'paste' && <PasteImportTab />}
       {tab === 'ai' && <AIGenerateTab />}
     </div>
