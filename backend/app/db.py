@@ -40,6 +40,28 @@ CREATE TABLE IF NOT EXISTS seed_state (
     template_name TEXT PRIMARY KEY,
     seeded_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS machines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL DEFAULT 22,
+    ssh_user TEXT NOT NULL,
+    ssh_key_path TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+-- No secrets/output here on purpose -- audit trail is "who ran what,
+-- where, when, what exit code", not a transcript that could itself leak
+-- whatever the script printed.
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    action TEXT NOT NULL,
+    script_id INTEGER,
+    script_name TEXT NOT NULL DEFAULT '',
+    detail TEXT NOT NULL DEFAULT ''
+);
 """
 
 

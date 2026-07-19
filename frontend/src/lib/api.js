@@ -58,4 +58,17 @@ export const api = {
   sandboxStatus: () => request('/sandbox/status'),
   sandboxRun: (content, script_type) =>
     request('/sandbox/run', { method: 'POST', body: JSON.stringify({ content, script_type }) }),
+
+  machines: () => request('/machines'),
+  availableKeys: () => request('/machines/available-keys'),
+  addMachine: (payload) => request('/machines', { method: 'POST', body: JSON.stringify(payload) }),
+  deleteMachine: (id) => request(`/machines/${id}`, { method: 'DELETE' }),
+  remoteExec: (scriptId, machine_id, sudo_password) =>
+    request(`/scripts/${scriptId}/remote-exec`, {
+      method: 'POST',
+      body: JSON.stringify({ machine_id, sudo_password: sudo_password || null }),
+    }),
+
+  auditLog: () => request('/settings/audit-log'),
+  stats: () => request('/settings/stats'),
 }

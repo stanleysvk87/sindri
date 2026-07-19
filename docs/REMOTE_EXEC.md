@@ -1,50 +1,64 @@
-# Remote execution — planned, not built
+# Remote execution — implementované 2026-07-19
 
-Zámer: raz vedieť spustiť katalogizovaný skript na diaľku priamo z UI,
-nie len skopírovať a spustiť ručne v termináli. Zapísané 2026-07-19 na
-základe požiadavky usera — **explicitne ako budúca, zatiaľ vypnutá
-funkcia**, nie niečo na implementáciu teraz.
+Spustí obsah katalogizovaného skriptu na registrovanom stroji cez SSH.
+Vypnuté defaultne (`SINDRI_REMOTE_EXEC_ENABLED=false`) — appka bez toho
+funguje plnohodnotne, toto je jediná funkcia, ktorá reálne mení stav na
+inom stroji, nie len číta/testuje izolovane (na rozdiel od
+`docs/SANDBOX.md`, ktorý beží v zahoditeľnom kontajneri bez následkov).
 
-## Prečo to (zatiaľ) neexistuje
+Pôvodne (viď git história tohto súboru) bol tento zápis len zámer s
+vypnutým placeholder tlačidlom — po explicitnej žiadosti usera je teraz
+reálne implementované, s presne tými podmienkami, čo boli vopred
+stanovené (sudo heslo nanovo pri každom spustení, žiadne uloženie).
 
-Pri návrhu tohto projektu sme si overili architektúru Heimdallu
-(MidgardOps), ktorý má na presne tento problém — spúšťanie príkazov na
-spravovaných strojoch — už poriadne premyslený bezpečnostný model:
-`actions/safe_subprocess.py` tam vynucuje pevný, ručne recenzovaný
-zoznam povolených spustiteľných príkazov, `shell=False`, žiadnu shell
-interpretáciu, timeouty, orezaný výstup. Nikdy nespúšťa "ľubovoľný text,
-ktorý niekto vložil do databázy" — len vopred definované, parametrizované
-akcie (napr. `docker restart <id>`, `systemctl restart <service>`).
+## Bezpečnostné vlastnosti (over v `backend/app/remote_exec.py`)
 
-Tento katalóg skriptov je z podstaty iný prípad: obsahuje presne
-"ľubovoľný text, ktorý niekto vložil" (importom alebo paste). Spustiť to
-na diaľku jedným klikom z web UI by bola úplne iná dôveryhodnostná
-hranica než čokoľvek v Heimdalli — v podstate primitívum na vzdialené
-spustenie kódu. To sa nemá robiť narýchlo/mimochodom.
+- **Vždy len na vopred zaregistrovaný stroj** — nikdy na cestu/IP
+  zadanú narýchlo pri spustení. Register v `backend/app/machines.py`
+  (Nastavenia → Spravované stroje).
+- **SSH kľúč vždy len namontovaný z hostiteľa** — appka kľúč nikdy
+  negeneruje ani neukladá jeho obsah. `backend/app/ssh_keys.py` len
+  vypíše, ktoré kľúče sú na namontovanej ceste (`GET
+  /api/machines/available-keys`), formulár na pridanie stroja z nich
+  vyberá.
+- **Sudo heslo (ak sa použije) sa zadáva nanovo pri KAŽDOM spustení**,
+  nikdy sa neukladá — ani v DB, ani v audit logu. Posiela sa cez SSH
+  na `sudo -S` cez stdin (nie ako argument príkazu), takže sa nikdy
+  neobjaví vo výpise procesov (`ps`) na hociktorej strane.
+- **Sudo je voliteľné, nie vynútené na každé spustenie** — väčšina
+  katalogizovaných skriptov (health checky, stavové výpisy) nepotrebuje
+  root. Vynucovať sudo heslo vždy by navyše na niektorých strojoch
+  vôbec nefungovalo (pozri nižšie).
+- `SSH BatchMode=yes` — SSH klient nikdy sám nespadne do interaktívneho
+  promptu, na ktorý by appka nemala čo odpovedať (zlyhá rýchlo namiesto
+  zaseknutia).
+- Timeout 60s, žiadny hang navždy.
+- Audit log (`backend/app/audit.py`) zaznamená kto/kedy/aký skript/aký
+  stroj/exit kód — **nikdy heslo, nikdy plný výstup** (výstup môže
+  obsahovať citlivé dáta z cieľového stroja).
 
-## Čo je pripravené už teraz
+## Dôležitý reálny nález pri testovaní
 
-- `GET /api/settings` vracia `remote_exec_enabled` (default `false`,
-  cez `SINDRI_REMOTE_EXEC_ENABLED` env var) — **žiadny kód, ktorý by
-  túto hodnotu využil na skutočné spustenie, zatiaľ neexistuje.**
-- Frontend zobrazí tlačidlo "Spustiť na diaľku" ako trvalo disabled s
-  tooltipom, prečo (pozri nižšie), bez ohľadu na hodnotu flagu — flag je
-  len na to, aby sa dal neskôr vedome zapnúť súbežne s implementáciou,
-  nie na to, aby si ho niekto omylom nastavil na `true` a čakal že to
-  niečo urobí.
+Pri testovaní proti victusu (kde je sudo fyzicky viazané na FIDO2
+hardvérový kľúč, nie heslo — pozri `CLAUDE.md`) sa potvrdilo: **heslom
+sa fyzicky-viazané sudo cez SSH vôbec nedá potvrdiť**, žiadna zmena v
+appke to nezmení, je to zámerná vlastnosť takto nastaveného stroja.
+Overené priamo proti victusu:
 
-## Čo by to vyžadovalo pred reálnou implementáciou
+- Bez sudo (`bash -s` priamo) — funguje spoľahlivo, rýchlo (~0.5s).
+- So zlým/chýbajúcim heslom — `sudo -S` zlyhá čisto s "incorrect
+  password attempts", **skript sa nikdy nespustí**, appka to korektne
+  nahlási, žiadny hang, žiadny pád.
+- Správne heslo na stroji s klasickým password-based sudo (napr. opi) —
+  toto si over sám priamo cez appku, keď budeš mať heslo poruke. Nie je
+  to niečo, čo by táto session mala/mohla overiť namiesto teba (heslo sa
+  nikam nezadáva okrem tvojho vlastného prehliadača).
 
-1. Explicitné overenie sudo hesla pri KAŽDOM spustení (nie len raz pri
-   prihlásení do appky) — presne to user pri zadaní požadoval.
-2. Vlastný, ručne recenzovaný spôsob spustenia (žiadny `shell=True`,
-   žiadny priamy `subprocess` nad ľubovoľným DB textom) — inšpirovať sa
-   `safe_subprocess.py` z Heimdallu, ideálne ako zdieľaný/portovaný kód
-   pri neskoršom napojení na MidgardOps.
-3. Audit log každého spustenia (kto, kedy, aký skript, aký výstup).
-4. Rozhodnutie, na ktorom stroji sa to reálne vykoná (SSH z appky? Agent
-   ako Heimdallov `midgard_agent`? To je architektonická otázka na
-   samostatné doriešenie, nie súčasť tohto zápisu.)
+## Čo appka nerobí (zámerne)
 
-Toto je vedomé budúce rozhodnutie, nie automatický "zapneme keď bude
-čas" krok.
+- Neuchováva históriu spustení s plným výstupom (len metadata v audit
+  logu).
+- Nespúšťa nič automaticky/naplánovane — vždy explicitný klik + potvrdenie.
+- Nerieši viac používateľov/rolí — appka má zatiaľ jedno zdieľané heslo,
+  takže "kto spustil čo" je momentálne len časová stopa v audit logu, nie
+  identita.

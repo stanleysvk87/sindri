@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import ScriptList from './pages/ScriptList'
 import ScriptDetail from './pages/ScriptDetail'
 import AddScript from './pages/AddScript'
+import Settings from './pages/Settings'
 import { api } from './lib/api'
 
 function RequireAuth({ children }) {
@@ -50,6 +51,14 @@ export default function App() {
         element={
           <RequireAuth>
             <AddScript />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <RequireAuth>
+            <Settings />
           </RequireAuth>
         }
       />

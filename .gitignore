@@ -6,3 +6,9 @@ backend/app/__pycache__/
 frontend/node_modules/
 frontend/dist/
 *.pyc
+
+# Real script content bind-mounted for import (opi/victus scripts often
+# have passwords/tokens hardcoded -- see scripts-index.md notes) --
+# never belongs in git, only the README explaining the folder does.
+import-sources/*
+!import-sources/README.md

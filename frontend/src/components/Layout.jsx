@@ -22,6 +22,9 @@ export default function Layout({ children }) {
             <Link to="/" className="text-text-secondary hover:text-text-primary">
               Katalóg
             </Link>
+            <Link to="/settings" className="text-text-secondary hover:text-text-primary">
+              Nastavenia
+            </Link>
             <Link
               to="/add"
               className="rounded bg-blue px-3 py-1.5 font-medium text-white hover:bg-blue-light"

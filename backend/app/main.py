@@ -7,8 +7,10 @@ from app.auth import require_auth
 from app.db import init_db
 from app.routes_ai import router as ai_router
 from app.routes_auth import router as auth_router
+from app.routes_machines import router as machines_router
 from app.routes_sandbox import router as sandbox_router
 from app.routes_scripts import router as scripts_router
+from app.routes_settings import router as settings_router
 
 app = FastAPI(title="sindri")
 
@@ -27,6 +29,8 @@ app.include_router(auth_router)
 app.include_router(scripts_router)
 app.include_router(ai_router)
 app.include_router(sandbox_router)
+app.include_router(machines_router)
+app.include_router(settings_router)
 
 
 @app.on_event("startup")
@@ -41,12 +45,11 @@ def health():
 
 @app.get("/api/settings", dependencies=[Depends(require_auth)])
 def get_settings():
-    """remote_exec_enabled is a hard off-switch, not a per-request check --
-    there is no execution code path in this app at all yet. This flag
-    only exists so the frontend can render the (disabled) button and the
-    intent is on record before any real implementation happens. See
-    docs/REMOTE_EXEC.md: turning this on for real requires a sudo
-    password verification step per call, not just flipping this env var."""
+    """remote_exec_enabled gates app/remote_exec.py's real SSH execution
+    path (POST /api/scripts/{id}/remote-exec) -- see docs/REMOTE_EXEC.md
+    for the safety properties (per-call sudo password, never persisted,
+    only ever targets a registered machine, SSH key always mounted from
+    the host not generated/stored by this app)."""
     return {
         "remote_exec_enabled": os.environ.get("SINDRI_REMOTE_EXEC_ENABLED", "false").lower()
         == "true"

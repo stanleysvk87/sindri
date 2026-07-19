@@ -2,16 +2,20 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from app.audit import log_action
 from app.auth import require_auth
 from app.db import get_conn
 from app.import_utils import confirm_import, import_path, scan_path
+from app.machines import get_machine
 from app.models import (
     ConfirmImportRequest,
     PathImportRequest,
+    RemoteExecRequest,
     ScanPathRequest,
     ScriptPasteImport,
     ScriptUpdate,
 )
+from app.remote_exec import RemoteExecError, run_remote
 from app.secret_scan import looks_like_it_has_a_secret
 
 router = APIRouter(prefix="/api/scripts", tags=["scripts"], dependencies=[Depends(require_auth)])
@@ -98,11 +102,37 @@ def update_script(script_id: int, payload: ScriptUpdate):
 @router.delete("/{script_id}")
 def delete_script(script_id: int):
     with get_conn() as conn:
-        existing = conn.execute("SELECT id FROM scripts WHERE id = ?", (script_id,)).fetchone()
+        existing = conn.execute("SELECT id, name FROM scripts WHERE id = ?", (script_id,)).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Script not found")
         conn.execute("DELETE FROM scripts WHERE id = ?", (script_id,))
+    log_action("delete", script_id, existing["name"])
     return {"deleted": script_id}
+
+
+@router.post("/{script_id}/remote-exec")
+def remote_exec(script_id: int, payload: RemoteExecRequest):
+    with get_conn() as conn:
+        script = conn.execute("SELECT * FROM scripts WHERE id = ?", (script_id,)).fetchone()
+    if not script:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    machine = get_machine(payload.machine_id)
+    if not machine:
+        raise HTTPException(status_code=404, detail="Machine not found")
+
+    try:
+        result = run_remote(machine, script["content"], payload.sudo_password)
+    except RemoteExecError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    log_action(
+        "remote_exec",
+        script_id,
+        script["name"],
+        f"machine={machine['name']} exit_code={result['exit_code']} sudo={'yes' if payload.sudo_password else 'no'}",
+    )
+    return result
 
 
 @router.post("/import/paste")
@@ -133,6 +163,7 @@ def import_paste(payload: ScriptPasteImport):
         )
         new_id = cur.lastrowid
         row = conn.execute("SELECT * FROM scripts WHERE id = ?", (new_id,)).fetchone()
+    log_action("create_paste", new_id, payload.name)
     return _row_to_dict(row)
 
 
@@ -164,7 +195,9 @@ def confirm_directory_import(payload: ConfirmImportRequest):
     """Import exactly the paths the user checked off in a prior scan."""
     if not payload.paths:
         raise HTTPException(status_code=400, detail="No paths selected")
-    return confirm_import(payload.paths, host=payload.host)
+    result = confirm_import(payload.paths, host=payload.host)
+    log_action("bulk_import", None, "", f"host={payload.host} {result}")
+    return result
 
 
 @router.get("/meta/hosts")

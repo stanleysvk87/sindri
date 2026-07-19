@@ -86,6 +86,14 @@ export default function ScriptDetail() {
   const [sandboxAvailable, setSandboxAvailable] = useState(null)
   const [sandboxRunning, setSandboxRunning] = useState(false)
   const [sandboxResult, setSandboxResult] = useState(null)
+  const [remoteExecEnabled, setRemoteExecEnabled] = useState(false)
+  const [machines, setMachines] = useState([])
+  const [remotePanelOpen, setRemotePanelOpen] = useState(false)
+  const [remoteMachineId, setRemoteMachineId] = useState('')
+  const [remoteSudoPassword, setRemoteSudoPassword] = useState('')
+  const [remoteUseSudo, setRemoteUseSudo] = useState(false)
+  const [remoteRunning, setRemoteRunning] = useState(false)
+  const [remoteResult, setRemoteResult] = useState(null)
 
   function reload() {
     api.getScript(id).then(setScript).catch(() => setError('Skript sa nenašiel.'))
@@ -95,6 +103,11 @@ export default function ScriptDetail() {
   useEffect(() => {
     api.aiStatus().then((s) => setAiAvailable(s.available)).catch(() => setAiAvailable(false))
     api.sandboxStatus().then((s) => setSandboxAvailable(s.available)).catch(() => setSandboxAvailable(false))
+    api.settings().then((s) => setRemoteExecEnabled(s.remote_exec_enabled)).catch(() => {})
+    api.machines().then((r) => {
+      setMachines(r.machines)
+      if (r.machines.length > 0) setRemoteMachineId(String(r.machines[0].id))
+    }).catch(() => {})
   }, [])
 
   async function save(field, value) {
@@ -138,6 +151,24 @@ export default function ScriptDetail() {
       setSandboxResult({ error: 'Sandbox beh zlyhal.' })
     } finally {
       setSandboxRunning(false)
+    }
+  }
+
+  async function handleRemoteExec() {
+    setRemoteRunning(true)
+    setRemoteResult(null)
+    try {
+      const result = await api.remoteExec(
+        id,
+        Number(remoteMachineId),
+        remoteUseSudo ? remoteSudoPassword : null
+      )
+      setRemoteResult(result)
+    } catch (err) {
+      setRemoteResult({ error: err.message || 'Vzdialené spustenie zlyhalo.' })
+    } finally {
+      setRemoteRunning(false)
+      setRemoteSudoPassword('')
     }
   }
 
@@ -238,19 +269,111 @@ export default function ScriptDetail() {
               {sandboxRunning ? 'Beží v sandboxe...' : 'Testovať v sandboxe'}
             </button>
           )}
-          <button
-            type="button"
-            disabled
-            title="Zatiaľ vypnuté — bude vyžadovať overenie sudo hesla pri každom spustení. Pozri docs/REMOTE_EXEC.md."
-            className="cursor-not-allowed rounded border border-border-strong px-3 py-1 text-xs text-text-tertiary opacity-50"
-          >
-            Spustiť na diaľku (čoskoro)
-          </button>
+          {remoteExecEnabled && machines.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setRemotePanelOpen((v) => !v)}
+              className="rounded border border-border-strong px-3 py-1 text-xs text-text-secondary hover:border-blue hover:text-text-primary"
+            >
+              Spustiť na diaľku
+            </button>
+          )}
+          {remoteExecEnabled && machines.length === 0 && (
+            <span
+              title="Zaregistruj aspoň jeden stroj v Nastaveniach."
+              className="cursor-not-allowed rounded border border-border-strong px-3 py-1 text-xs text-text-tertiary opacity-50"
+            >
+              Spustiť na diaľku
+            </span>
+          )}
+          {!remoteExecEnabled && (
+            <button
+              type="button"
+              disabled
+              title="Zatiaľ vypnuté (SINDRI_REMOTE_EXEC_ENABLED=false). Pozri docs/REMOTE_EXEC.md."
+              className="cursor-not-allowed rounded border border-border-strong px-3 py-1 text-xs text-text-tertiary opacity-50"
+            >
+              Spustiť na diaľku (vypnuté)
+            </button>
+          )}
         </div>
       </div>
       <pre className="overflow-x-auto rounded-lg border border-border bg-panel p-4 font-mono text-xs text-text-primary">
         {script.content}
       </pre>
+
+      {remotePanelOpen && (
+        <div className="mt-4 rounded-lg border border-border bg-panel p-4">
+          <h3 className="mb-3 text-xs uppercase tracking-wide text-text-tertiary">
+            Spustiť na diaľku
+          </h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <select
+              value={remoteMachineId}
+              onChange={(e) => setRemoteMachineId(e.target.value)}
+              className="rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
+            >
+              {machines.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({m.ssh_user}@{m.host})
+                </option>
+              ))}
+            </select>
+            <label className="flex items-center gap-2 text-sm text-text-secondary">
+              <input
+                type="checkbox"
+                checked={remoteUseSudo}
+                onChange={(e) => setRemoteUseSudo(e.target.checked)}
+              />
+              spustiť cez sudo
+            </label>
+          </div>
+          {remoteUseSudo && (
+            <input
+              type="password"
+              placeholder="sudo heslo (nikdy sa neukladá, zadáva sa nanovo pri každom spustení)"
+              value={remoteSudoPassword}
+              onChange={(e) => setRemoteSudoPassword(e.target.value)}
+              className="mt-3 w-full rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
+            />
+          )}
+          <p className="mt-2 text-xs text-text-tertiary">
+            Pozor: toto reálne spustí obsah skriptu na vybranom stroji. Ak sudo na cieľovom stroji
+            vyžaduje fyzický hardvérový kľúč (napr. FIDO2), heslom sa to nepotvrdí — musíš byť pri
+            stroji a dotknúť sa ho.
+          </p>
+          <button
+            type="button"
+            onClick={handleRemoteExec}
+            disabled={remoteRunning || !remoteMachineId}
+            className="mt-3 rounded bg-warning px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {remoteRunning ? 'Spúšťam...' : 'Naozaj spustiť'}
+          </button>
+        </div>
+      )}
+
+      {remoteResult && (
+        <div className="mt-4 rounded-lg border border-border bg-panel p-4">
+          <h3 className="mb-2 text-xs uppercase tracking-wide text-text-tertiary">
+            Výstup vzdialeného spustenia{' '}
+            {remoteResult.exit_code != null && `(exit ${remoteResult.exit_code})`}
+            {remoteResult.timed_out && ' — TIMEOUT'}
+          </h3>
+          {remoteResult.error || remoteResult.detail ? (
+            <p className="text-sm text-warning">{remoteResult.error || remoteResult.detail}</p>
+          ) : (
+            <>
+              {remoteResult.stdout && (
+                <pre className="mb-2 overflow-x-auto whitespace-pre-wrap text-xs text-text-primary">{remoteResult.stdout}</pre>
+              )}
+              {remoteResult.stderr && (
+                <pre className="overflow-x-auto whitespace-pre-wrap text-xs text-warning">{remoteResult.stderr}</pre>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {sandboxResult && (
         <div className="mt-4 rounded-lg border border-border bg-panel p-4">

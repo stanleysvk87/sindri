@@ -36,6 +36,15 @@ services:
       # itself host-root-equivalent power -- only uncomment this on a
       # host you trust to run this backend with that level of access.
       # - /var/run/docker.sock:/var/run/docker.sock
+      #
+      # Real remote execution over SSH to registered managed machines
+      # (docs/REMOTE_EXEC.md). Mounts the host's existing SSH keys
+      # read-only -- the app only ever uses a key already here, it never
+      # generates or stores one. Only the "add machine" form's dropdown
+      # (GET /api/machines/available-keys) reads this path; SSH itself
+      # only touches whichever single key file the registered machine
+      # points at.
+      - ${HOME}/.ssh:/home/sindri/.ssh-host:ro
     restart: unless-stopped
 
   frontend:

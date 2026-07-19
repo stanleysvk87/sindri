@@ -79,3 +79,16 @@ class AIReviewRequest(BaseModel):
 class SandboxRunRequest(BaseModel):
     content: str
     script_type: str | None = None
+
+
+class MachineCreate(BaseModel):
+    name: str
+    host: str
+    port: int = 22
+    ssh_user: str
+    ssh_key_path: str
+
+
+class RemoteExecRequest(BaseModel):
+    machine_id: int
+    sudo_password: str | None = None
