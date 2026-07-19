@@ -1,3 +1,4 @@
+import hashlib
 import hmac
 import os
 import secrets
@@ -6,12 +7,14 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, Request
 
 from app.db import get_conn
+from app.settings_store import get_setting, set_setting
 
 COOKIE_NAME = "sindri_session"
 SESSION_TTL = timedelta(days=14)
+PBKDF2_ITERATIONS = 200_000
 
 
-def _password() -> str:
+def _env_password() -> str:
     pw = os.environ.get("SINDRI_PASSWORD", "")
     if not pw:
         raise RuntimeError(
@@ -20,8 +23,34 @@ def _password() -> str:
     return pw
 
 
+def _hash_password(password: str, salt: bytes | None = None) -> str:
+    salt = salt or secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PBKDF2_ITERATIONS)
+    return f"{salt.hex()}:{digest.hex()}"
+
+
+def _verify_hash(password: str, stored: str) -> bool:
+    try:
+        salt_hex, digest_hex = stored.split(":", 1)
+    except ValueError:
+        return False
+    salt = bytes.fromhex(salt_hex)
+    candidate = _hash_password(password, salt)
+    return hmac.compare_digest(candidate, f"{salt_hex}:{digest_hex}")
+
+
 def check_password(candidate: str) -> bool:
-    return hmac.compare_digest(candidate, _password())
+    """A password changed via Settings (stored hashed, PBKDF2) always
+    wins over SINDRI_PASSWORD -- the env var is only the bootstrap/
+    default credential, same relationship as the AI settings override."""
+    stored_hash = get_setting("app_password_hash")
+    if stored_hash:
+        return _verify_hash(candidate, stored_hash)
+    return hmac.compare_digest(candidate, _env_password())
+
+
+def set_password(new_password: str) -> None:
+    set_setting("app_password_hash", _hash_password(new_password))
 
 
 def create_session() -> str:

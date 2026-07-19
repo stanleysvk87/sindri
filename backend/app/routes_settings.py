@@ -2,11 +2,12 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.applog import tail as tail_applog
 from app.audit import recent
-from app.auth import require_auth
+from app.auth import check_password, require_auth, set_password
 from app.db import get_conn
 from app.machines import get_machine
-from app.models import AIConfigUpdate, HostStatusRequest
+from app.models import AIConfigUpdate, AccountPasswordUpdate, HostStatusRequest
 from app.remote_exec import RemoteExecError, run_remote
 from app.settings_store import get_setting, set_setting
 
@@ -71,6 +72,21 @@ def update_ai_config(payload: AIConfigUpdate):
     if payload.anthropic_api_key is not None:
         set_setting("ai_anthropic_api_key", payload.anthropic_api_key)
     return get_ai_config()
+
+
+@router.get("/app-log")
+def app_log(lines: int = 200):
+    return {"log": tail_applog(lines)}
+
+
+@router.put("/account")
+def update_account_password(payload: AccountPasswordUpdate):
+    if not check_password(payload.current_password):
+        raise HTTPException(status_code=401, detail="Súčasné heslo nesedí.")
+    if len(payload.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Nové heslo musí mať aspoň 8 znakov.")
+    set_password(payload.new_password)
+    return {"ok": True}
 
 
 @router.post("/host-status")

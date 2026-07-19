@@ -345,6 +345,109 @@ function StatsSection() {
   )
 }
 
+function AccountSection() {
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [newPassword2, setNewPassword2] = useState('')
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setError('')
+    setSaved(false)
+    if (newPassword.length < 8) {
+      setError('Nové heslo musí mať aspoň 8 znakov.')
+      return
+    }
+    if (newPassword !== newPassword2) {
+      setError('Nové heslá sa nezhodujú.')
+      return
+    }
+    setSaving(true)
+    try {
+      await api.updateAccountPassword(currentPassword, newPassword)
+      setCurrentPassword('')
+      setNewPassword('')
+      setNewPassword2('')
+      setSaved(true)
+    } catch (err) {
+      setError(err.message === 'Request failed: 401' ? 'Súčasné heslo nesedí.' : 'Nepodarilo sa zmeniť heslo.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div>
+      <h2 className="mb-3 text-lg font-semibold text-text-primary">Účet</h2>
+      <form onSubmit={handleSubmit} className="grid gap-3 rounded-lg border border-border bg-panel p-4 sm:w-96">
+        <input
+          type="password"
+          placeholder="Súčasné heslo"
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+          className="rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
+        />
+        <input
+          type="password"
+          placeholder="Nové heslo (min. 8 znakov)"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          className="rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
+        />
+        <input
+          type="password"
+          placeholder="Zopakuj nové heslo"
+          value={newPassword2}
+          onChange={(e) => setNewPassword2(e.target.value)}
+          className="rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
+        />
+        {error && <p className="text-sm text-warning">{error}</p>}
+        {saved && <p className="text-sm text-success">Heslo zmenené ✓</p>}
+        <button
+          type="submit"
+          disabled={saving || !currentPassword || !newPassword}
+          className="w-fit rounded bg-blue px-4 py-2 text-sm font-medium text-white hover:bg-blue-light disabled:opacity-50"
+        >
+          {saving ? 'Ukladám...' : 'Zmeniť heslo'}
+        </button>
+      </form>
+    </div>
+  )
+}
+
+function AppLogSection() {
+  const [log, setLog] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  function reload() {
+    setLoading(true)
+    api.appLog(300).then((r) => setLog(r.log)).catch(() => {}).finally(() => setLoading(false))
+  }
+
+  useEffect(reload, [])
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-text-primary">Logy appky</h2>
+        <button
+          type="button"
+          onClick={reload}
+          className="text-xs text-blue-light hover:underline"
+        >
+          {loading ? 'Načítavam...' : 'Obnoviť'}
+        </button>
+      </div>
+      <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-panel p-4 font-mono text-xs text-text-secondary">
+        {log || 'Zatiaľ žiadne zaznamenané chyby.'}
+      </pre>
+    </div>
+  )
+}
+
 export default function Settings() {
   return (
     <div className="grid gap-8">
@@ -352,7 +455,9 @@ export default function Settings() {
       <HostStatusSection />
       <MachinesSection />
       <AISection />
+      <AccountSection />
       <AuditLogSection />
+      <AppLogSection />
     </div>
   )
 }

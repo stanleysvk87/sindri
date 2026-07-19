@@ -1,12 +1,18 @@
 from datetime import datetime, timezone
 
 from app.db import get_conn
+from app.ssh_keys import to_host_path
+
+
+def _with_host_path(row: dict) -> dict:
+    row["ssh_key_path_host"] = to_host_path(row["ssh_key_path"]) if row["ssh_key_path"] else ""
+    return row
 
 
 def list_machines() -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute("SELECT * FROM machines ORDER BY name").fetchall()
-    return [dict(r) for r in rows]
+    return [_with_host_path(dict(r)) for r in rows]
 
 
 def get_machine(machine_id: int) -> dict | None:

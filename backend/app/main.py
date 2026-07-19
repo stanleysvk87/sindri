@@ -1,8 +1,10 @@
 import os
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from app.applog import logger, setup_logging
 from app.auth import require_auth
 from app.db import init_db
 from app.routes_ai import router as ai_router
@@ -35,7 +37,14 @@ app.include_router(settings_router)
 
 @app.on_event("startup")
 def on_startup():
+    setup_logging()
     init_db()
+
+
+@app.exception_handler(Exception)
+async def log_unhandled_exception(request: Request, exc: Exception):
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 @app.get("/api/health")

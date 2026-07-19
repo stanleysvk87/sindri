@@ -1,5 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
+import CommandPalette from './CommandPalette'
 
 export default function Layout({ children }) {
   const navigate = useNavigate()
@@ -25,6 +26,12 @@ export default function Layout({ children }) {
             <Link to="/settings" className="text-text-secondary hover:text-text-primary">
               Nastavenia
             </Link>
+            <span
+              title="Otvor rýchle hľadanie (Ctrl+K)"
+              className="hidden rounded border border-border-strong px-1.5 py-0.5 text-[10px] text-text-tertiary sm:inline"
+            >
+              Ctrl+K
+            </span>
             <Link
               to="/add"
               className="rounded bg-blue px-3 py-1.5 font-medium text-white hover:bg-blue-light"
@@ -42,6 +49,7 @@ export default function Layout({ children }) {
         </div>
       </header>
       <main className="mx-auto max-w-5xl px-6 py-8">{children}</main>
+      <CommandPalette />
     </div>
   )
 }

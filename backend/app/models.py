@@ -151,3 +151,18 @@ class AIConfigUpdate(BaseModel):
 
 class HostStatusRequest(BaseModel):
     machine_id: int
+
+
+class AccountPasswordUpdate(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class RemoteExecAllRequest(BaseModel):
+    sudo_password: str | None = None
+
+
+class BulkTagRequest(BaseModel):
+    ids: list[int]
+    add: str = ""  # comma-separated tags to add
+    remove: str = ""  # comma-separated tags to remove

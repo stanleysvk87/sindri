@@ -21,16 +21,20 @@ export const api = {
   login: (password) =>
     request('/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
   logout: () => request('/auth/logout', { method: 'POST' }),
+  verifyPassword: (password) =>
+    request('/auth/verify', { method: 'POST', body: JSON.stringify({ password }) }),
 
-  listScripts: ({ host, tags, q } = {}) => {
+  listScripts: ({ host, tags, q, favorite } = {}) => {
     const params = new URLSearchParams()
     if (host) params.set('host', host)
     for (const t of tags || []) params.append('tag', t)
     if (q) params.set('q', q)
+    if (favorite) params.set('favorite', 'true')
     const qs = params.toString()
     return request(`/scripts${qs ? `?${qs}` : ''}`)
   },
   getScript: (id) => request(`/scripts/${id}`),
+  scriptHistory: (id, limit = 50) => request(`/scripts/${id}/history?limit=${limit}`),
   updateScript: (id, fields) =>
     request(`/scripts/${id}`, { method: 'PATCH', body: JSON.stringify(fields) }),
   deleteScript: (id) => request(`/scripts/${id}`, { method: 'DELETE' }),
@@ -59,6 +63,17 @@ export const api = {
     request(`/scripts/${scriptId}/push`, {
       method: 'POST',
       body: JSON.stringify({ machine_id: machine_id ?? null, target_path: target_path ?? null }),
+    }),
+  rescanScript: (scriptId) => request(`/scripts/${scriptId}/rescan`, { method: 'POST' }),
+
+  bulkTag: (ids, add, remove) =>
+    request('/scripts/bulk-tag', { method: 'POST', body: JSON.stringify({ ids, add, remove }) }),
+  toggleFavorite: (id) => request(`/scripts/${id}/favorite`, { method: 'POST' }),
+  duplicateScript: (id) => request(`/scripts/${id}/duplicate`, { method: 'POST' }),
+  remoteExecAll: (scriptId, sudo_password) =>
+    request(`/scripts/${scriptId}/remote-exec-all`, {
+      method: 'POST',
+      body: JSON.stringify({ sudo_password: sudo_password || null }),
     }),
 
   hosts: () => request('/scripts/meta/hosts'),
@@ -99,4 +114,10 @@ export const api = {
     request('/settings/ai', { method: 'PUT', body: JSON.stringify(payload) }),
   hostStatus: (machine_id) =>
     request('/settings/host-status', { method: 'POST', body: JSON.stringify({ machine_id }) }),
+  appLog: (lines = 200) => request(`/settings/app-log?lines=${lines}`),
+  updateAccountPassword: (current_password, new_password) =>
+    request('/settings/account', {
+      method: 'PUT',
+      body: JSON.stringify({ current_password, new_password }),
+    }),
 }

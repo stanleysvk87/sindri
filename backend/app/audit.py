@@ -18,3 +18,12 @@ def recent(limit: int = 100) -> list[dict]:
             "SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def for_script(script_id: int, limit: int = 50) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM audit_log WHERE script_id = ? ORDER BY id DESC LIMIT ?",
+            (script_id, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]

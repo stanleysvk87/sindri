@@ -101,6 +101,24 @@ def scan_remote_path(machine: dict, path: str, known_refs: set[str]) -> dict:
     return {"scanned_dir": path, "candidates": candidates}
 
 
+def pull_file(machine: dict, remote_path: str) -> str:
+    """Read a single file's current content from `machine` over SSH --
+    the reverse of push_file, used by the "rescan/refresh from source"
+    button to check whether a remote_import script's source has drifted
+    since it was imported. Base64 over stdout for the same reason as
+    scan_remote_path: no delimiter/content collision risk."""
+    quoted_path = shlex.quote(remote_path)
+    result = run_remote(machine, f"base64 {quoted_path}", None)
+    if result["timed_out"]:
+        raise RemoteExecError("Čítanie zo zdroja vypršalo (timeout).")
+    if result["exit_code"] not in (0, None):
+        raise RemoteExecError(result["stderr"][:500] or f"Súbor {remote_path} sa nepodarilo prečítať.")
+    try:
+        return base64.b64decode(result["stdout"].strip()).decode("utf-8", errors="replace")
+    except Exception as exc:
+        raise RemoteExecError(f"Obsah {remote_path} sa nepodarilo dekódovať: {exc}") from exc
+
+
 def push_file(machine: dict, remote_path: str, content: str) -> dict:
     """Write `content` to `remote_path` on `machine` over SSH -- the
     other direction of scan_remote_path, for "edit here, send it back"

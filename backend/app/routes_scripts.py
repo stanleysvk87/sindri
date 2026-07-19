@@ -1,17 +1,20 @@
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from app.audit import log_action
+from app.audit import for_script, log_action
 from app.auth import require_auth
 from app.db import get_conn
 from app.import_utils import confirm_import, import_path, scan_path
-from app.machines import create_machine, get_machine
+from app.machines import create_machine, get_machine, list_machines
 from app.models import (
+    BulkTagRequest,
     ConfirmImportRequest,
     PathImportRequest,
     PushBackRequest,
     RemoteConfirmImportRequest,
+    RemoteExecAllRequest,
     RemoteExecRequest,
     RemoteScanRequest,
     ScanPathRequest,
@@ -19,16 +22,38 @@ from app.models import (
     ScriptUpdate,
 )
 from app.remote_exec import RemoteExecError, run_remote
-from app.remote_import import push_file, scan_remote_path
+from app.remote_import import pull_file, push_file, scan_remote_path
 from app.secret_scan import looks_like_it_has_a_secret
 
 router = APIRouter(prefix="/api/scripts", tags=["scripts"], dependencies=[Depends(require_auth)])
+
+
+def _resolve_remote_source(script) -> tuple[dict, str]:
+    """Parse a remote_import script's source_ref (shape:
+    ssh://<machine_name><absolute_path>) back into a machine row + path,
+    for the push/rescan routes that infer the target from where a script
+    was originally pulled from."""
+    if script["source_type"] != "remote_import" or not script["source_ref"].startswith("ssh://"):
+        raise HTTPException(status_code=400, detail="Tento skript nepochádza z remote importu.")
+    rest = script["source_ref"][len("ssh://") :]
+    machine_name, _, path_part = rest.partition("/")
+    path = "/" + path_part
+    with get_conn() as conn:
+        machine_row = conn.execute("SELECT * FROM machines WHERE name = ?", (machine_name,)).fetchone()
+    if not machine_row:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Pôvodný stroj '{machine_name}' už nie je zaregistrovaný.",
+        )
+    return dict(machine_row), path
 
 
 def _row_to_dict(row):
     d = dict(row)
     if "has_possible_secret" in d:
         d["has_possible_secret"] = bool(d["has_possible_secret"])
+    if "is_favorite" in d:
+        d["is_favorite"] = bool(d["is_favorite"])
     return d
 
 
@@ -37,6 +62,7 @@ def list_scripts(
     host: str | None = None,
     tag: list[str] = Query(default=[]),
     q: str | None = None,
+    favorite: bool = False,
 ):
     clauses = []
     params: list = []
@@ -44,6 +70,8 @@ def list_scripts(
     if host:
         clauses.append("host = ?")
         params.append(host)
+    if favorite:
+        clauses.append("is_favorite = 1")
     if tag:
         # OR across selected tag chips -- "docker" + "network" means
         # "either category", the way a category filter is normally read,
@@ -65,10 +93,10 @@ def list_scripts(
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     sql = f"""
         SELECT id, name, host, tags, short_description, run_mode,
-               has_possible_secret, updated_at
+               has_possible_secret, is_favorite, updated_at
         FROM scripts
         {where}
-        ORDER BY name COLLATE NOCASE
+        ORDER BY is_favorite DESC, name COLLATE NOCASE
     """
     with get_conn() as conn:
         rows = conn.execute(sql, params).fetchall()
@@ -81,6 +109,60 @@ def get_script(script_id: int):
         row = conn.execute("SELECT * FROM scripts WHERE id = ?", (script_id,)).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Script not found")
+    return _row_to_dict(row)
+
+
+@router.get("/{script_id}/history")
+def script_history(script_id: int, limit: int = 50):
+    return {"entries": for_script(script_id, limit)}
+
+
+@router.post("/{script_id}/favorite")
+def toggle_favorite(script_id: int):
+    with get_conn() as conn:
+        row = conn.execute("SELECT is_favorite FROM scripts WHERE id = ?", (script_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Script not found")
+        new_value = 0 if row["is_favorite"] else 1
+        conn.execute("UPDATE scripts SET is_favorite = ? WHERE id = ?", (new_value, script_id))
+    return {"is_favorite": bool(new_value)}
+
+
+@router.post("/{script_id}/duplicate")
+def duplicate_script(script_id: int):
+    """A fresh, independent copy -- always source_type='pasted' with no
+    source_ref, even if the original was imported, so editing/deleting
+    the copy can never touch the original file on disk or its remote
+    machine (no source to push/rescan back to)."""
+    with get_conn() as conn:
+        script = conn.execute("SELECT * FROM scripts WHERE id = ?", (script_id,)).fetchone()
+    if not script:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        cur = conn.execute(
+            """INSERT INTO scripts
+               (name, host, tags, short_description, long_description, notes, content,
+                run_mode, source_type, source_ref, has_possible_secret, is_favorite,
+                created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pasted', '', ?, 0, ?, ?)""",
+            (
+                f"{script['name']} (kópia)",
+                script["host"],
+                script["tags"],
+                script["short_description"],
+                script["long_description"],
+                script["notes"],
+                script["content"],
+                script["run_mode"],
+                script["has_possible_secret"],
+                now,
+                now,
+            ),
+        )
+        row = conn.execute("SELECT * FROM scripts WHERE id = ?", (cur.lastrowid,)).fetchone()
+    log_action("duplicate", cur.lastrowid, row["name"], f"from_id={script_id}")
     return _row_to_dict(row)
 
 
@@ -174,6 +256,41 @@ def remote_exec(script_id: int, payload: RemoteExecRequest):
     return result
 
 
+@router.post("/{script_id}/remote-exec-all")
+def remote_exec_all(script_id: int, payload: RemoteExecAllRequest):
+    """Run this script on every registered machine, one after another --
+    only registered machines (no ad-hoc connection: "run everywhere"
+    only makes sense against the fleet you already track), same sudo
+    password reused across all of them since it's never stored either
+    way. Failures on one machine don't stop the rest -- each result is
+    reported independently."""
+    with get_conn() as conn:
+        script = conn.execute("SELECT * FROM scripts WHERE id = ?", (script_id,)).fetchone()
+    if not script:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    machines = list_machines()
+    if not machines:
+        raise HTTPException(status_code=400, detail="Žiadny spravovaný stroj nie je zaregistrovaný.")
+
+    results = []
+    for machine in machines:
+        try:
+            result = run_remote(machine, script["content"], payload.sudo_password, None)
+            exit_display = "timeout" if result["timed_out"] else result["exit_code"]
+        except RemoteExecError as exc:
+            result = {"error": str(exc)}
+            exit_display = "error"
+        results.append({"machine_id": machine["id"], "machine_name": machine["name"], **result})
+        log_action(
+            "remote_exec",
+            script_id,
+            script["name"],
+            f"machine={machine['name']} exit_code={exit_display} sudo={'yes' if payload.sudo_password else 'no'} (run-all)",
+        )
+    return {"results": results}
+
+
 @router.post("/{script_id}/push")
 def push_script(script_id: int, payload: PushBackRequest):
     """Write this script's current content to a machine -- either back
@@ -191,23 +308,15 @@ def push_script(script_id: int, payload: PushBackRequest):
     target_path = payload.target_path
 
     if machine_id is None or target_path is None:
-        if script["source_type"] != "remote_import" or not script["source_ref"].startswith("ssh://"):
-            raise HTTPException(
-                status_code=400,
-                detail="machine_id a target_path sú povinné pre skripty, ktoré nepochádzajú z remote importu.",
-            )
-        # source_ref shape: ssh://<machine_name><absolute_path>
-        rest = script["source_ref"][len("ssh://") :]
-        machine_name, _, path_part = rest.partition("/")
-        target_path = "/" + path_part
-        with get_conn() as conn:
-            machine_row = conn.execute("SELECT * FROM machines WHERE name = ?", (machine_name,)).fetchone()
-        if not machine_row:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Pôvodný stroj '{machine_name}' už nie je zaregistrovaný -- zadaj machine_id a target_path ručne.",
-            )
-        machine = dict(machine_row)
+        try:
+            machine, target_path = _resolve_remote_source(script)
+        except HTTPException as exc:
+            if exc.status_code == 400:
+                raise HTTPException(
+                    status_code=400,
+                    detail="machine_id a target_path sú povinné pre skripty, ktoré nepochádzajú z remote importu.",
+                ) from exc
+            raise
     else:
         machine = get_machine(machine_id)
         if not machine:
@@ -220,6 +329,84 @@ def push_script(script_id: int, payload: PushBackRequest):
 
     log_action("push", script_id, script["name"], f"machine={machine['name']} path={target_path}")
     return result
+
+
+@router.post("/{script_id}/rescan")
+def rescan_script(script_id: int):
+    """Re-read this script's content from wherever it was originally
+    imported from (local_import: mounted path, remote_import: SSH pull)
+    and, if the source has drifted since import, update the stored copy.
+    The opposite direction of /push -- source of truth flows in, not out."""
+    with get_conn() as conn:
+        script = conn.execute("SELECT * FROM scripts WHERE id = ?", (script_id,)).fetchone()
+    if not script:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    if script["source_type"] == "local_import":
+        source_path = Path(script["source_ref"])
+        if not source_path.is_file():
+            raise HTTPException(status_code=404, detail=f"Zdrojový súbor {source_path} už na disku neexistuje.")
+        try:
+            new_content = source_path.read_text(errors="replace")
+        except OSError as exc:
+            raise HTTPException(status_code=503, detail=f"Súbor sa nepodarilo prečítať: {exc}") from exc
+    elif script["source_type"] == "remote_import":
+        machine, path = _resolve_remote_source(script)
+        try:
+            new_content = pull_file(machine, path)
+        except RemoteExecError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+    else:
+        raise HTTPException(status_code=400, detail="Tento skript nepochádza z importu, niet z čoho ho obnoviť.")
+
+    changed = new_content != script["content"]
+    if changed:
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE scripts SET content = ?, has_possible_secret = ?, updated_at = ? WHERE id = ?",
+                (
+                    new_content,
+                    int(looks_like_it_has_a_secret(new_content)),
+                    datetime.now(timezone.utc).isoformat(),
+                    script_id,
+                ),
+            )
+            row = conn.execute("SELECT * FROM scripts WHERE id = ?", (script_id,)).fetchone()
+        log_action("rescan", script_id, script["name"], "changed=yes")
+        return {"changed": True, "script": _row_to_dict(row)}
+
+    log_action("rescan", script_id, script["name"], "changed=no")
+    return {"changed": False, "script": _row_to_dict(script)}
+
+
+@router.post("/bulk-tag")
+def bulk_tag(payload: BulkTagRequest):
+    """Add and/or remove tags across many scripts at once -- the
+    catalog's multi-select checkboxes feed this. Tags are stored as a
+    plain comma-separated string per script (same shape EditableField
+    already edits one at a time), so this just does the same
+    add-to-set/remove-from-set per row, in bulk."""
+    add_tags = {t.strip() for t in payload.add.split(",") if t.strip()}
+    remove_tags = {t.strip() for t in payload.remove.split(",") if t.strip()}
+    if not add_tags and not remove_tags:
+        raise HTTPException(status_code=400, detail="Zadaj aspoň jeden tag na pridanie alebo odstránenie.")
+
+    updated = 0
+    with get_conn() as conn:
+        for script_id in payload.ids:
+            row = conn.execute("SELECT tags FROM scripts WHERE id = ?", (script_id,)).fetchone()
+            if not row:
+                continue
+            current = {t.strip() for t in row["tags"].split(",") if t.strip()}
+            new_tags = ",".join(sorted((current | add_tags) - remove_tags))
+            conn.execute(
+                "UPDATE scripts SET tags = ?, updated_at = ? WHERE id = ?",
+                (new_tags, datetime.now(timezone.utc).isoformat(), script_id),
+            )
+            updated += 1
+
+    log_action("bulk_tag", None, "", f"ids={len(payload.ids)} add={payload.add!r} remove={payload.remove!r} updated={updated}")
+    return {"updated": updated}
 
 
 @router.post("/import/paste")
