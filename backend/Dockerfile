@@ -7,7 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
-ENV SCRIPTBOX_DB_PATH=/data/scripts.db
+ENV SINDRI_DB_PATH=/data/scripts.db
 VOLUME ["/data"]
 
 # Non-root, UID 1000: matches the typical single-user homelab host account
