@@ -11,6 +11,14 @@ prepínač v hlavičke).
 Meno po Sindrim, trpasličom kováčovi zo severskej mytológie, ktorý
 vykoval Mjölnir a ďalšie legendárne artefakty pre bohov.
 
+<p float="left">
+  <img src="docs/screenshots/catalog.png" width="49%" alt="Katalóg skriptov" />
+  <img src="docs/screenshots/script-detail.png" width="49%" alt="Detail skriptu" />
+</p>
+<p float="left">
+  <img src="docs/screenshots/catalog-en.png" width="49%" alt="Catalog view, English UI" />
+</p>
+
 ## Rýchly štart
 
 ```bash
