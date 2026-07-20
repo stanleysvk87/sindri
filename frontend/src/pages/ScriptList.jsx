@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { getRecentIds } from '../lib/recent'
+import { useTranslation } from '../i18n/I18nContext.jsx'
 
 function scriptIcon(name) {
   if (name.endsWith('.py')) return '🐍'
@@ -10,6 +11,7 @@ function scriptIcon(name) {
 }
 
 export default function ScriptList() {
+  const { t } = useTranslation()
   const [scripts, setScripts] = useState([])
   const [hosts, setHosts] = useState([])
   const [allTags, setAllTags] = useState([])
@@ -28,6 +30,7 @@ export default function ScriptList() {
   const [bulkMessage, setBulkMessage] = useState('')
   const [favoriteOnly, setFavoriteOnly] = useState(false)
   const [everywhereOnly, setEverywhereOnly] = useState(false)
+  const [secretOnly, setSecretOnly] = useState(false)
   const [allScriptsForRecent, setAllScriptsForRecent] = useState([])
 
   useEffect(() => {
@@ -40,16 +43,16 @@ export default function ScriptList() {
     setLoading(true)
     const timeout = setTimeout(() => {
       api
-        .listScripts({ host: host || undefined, tags: [...selectedTags], q: q || undefined, favorite: favoriteOnly, everywhere: everywhereOnly })
+        .listScripts({ host: host || undefined, tags: [...selectedTags], q: q || undefined, favorite: favoriteOnly, everywhere: everywhereOnly, secret: secretOnly })
         .then((r) => {
           setScripts(r.scripts)
           setVisibleCount(PAGE_SIZE) // nový filter/hľadanie -- začni znova od prvej strany
         })
-        .catch(() => setError('Nepodarilo sa načítať zoznam.'))
+        .catch(() => setError(t('scriptList.loadFailed')))
         .finally(() => setLoading(false))
     }, 200) // debounce fulltext hľadania
     return () => clearTimeout(timeout)
-  }, [host, selectedTags, q, favoriteOnly, everywhereOnly])
+  }, [host, selectedTags, q, favoriteOnly, everywhereOnly, secretOnly])
 
   async function handleToggleFavorite(e, scriptId) {
     e.preventDefault()
@@ -92,14 +95,14 @@ export default function ScriptList() {
     setBulkMessage('')
     try {
       const result = await api.bulkTag([...selectedIds], bulkAddTag.trim(), bulkRemoveTag.trim())
-      setBulkMessage(`Upravené tagy pri ${result.updated} skriptoch.`)
+      setBulkMessage(t('scriptList.bulkTagUpdated', { count: result.updated }))
       setBulkAddTag('')
       setBulkRemoveTag('')
       const r = await api.listScripts({ host: host || undefined, tags: [...selectedTags], q: q || undefined, favorite: favoriteOnly })
       setScripts(r.scripts)
       api.tags().then((rr) => setAllTags(rr.tags)).catch(() => {})
     } catch (err) {
-      setBulkMessage(err.message || 'Hromadná úprava zlyhala.')
+      setBulkMessage(err.message || t('scriptList.bulkTagFailed'))
     } finally {
       setBulkApplying(false)
     }
@@ -110,7 +113,7 @@ export default function ScriptList() {
       <div className="mb-4 flex flex-col flex-wrap gap-3 sm:flex-row sm:items-center">
         <input
           type="text"
-          placeholder="Hľadaj podľa mena, popisu, poznámok alebo obsahu..."
+          placeholder={t('scriptList.searchPlaceholder')}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           className="flex-1 rounded border border-border-strong bg-panel px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
@@ -120,7 +123,7 @@ export default function ScriptList() {
           onChange={(e) => setHost(e.target.value)}
           className="rounded border border-border-strong bg-panel px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
         >
-          <option value="">Všetky stroje</option>
+          <option value="">{t('scriptList.allMachines')}</option>
           {hosts.map((h) => (
             <option key={h} value={h}>
               {h}
@@ -130,26 +133,38 @@ export default function ScriptList() {
         <button
           type="button"
           onClick={() => setFavoriteOnly((v) => !v)}
-          title="Zobraziť len obľúbené skripty"
+          title={t('scriptList.favoritesOnlyTitle')}
           className={`rounded border px-3 py-2 text-sm ${
             favoriteOnly
               ? 'border-blue bg-blue text-white'
               : 'border-border-strong bg-panel text-text-secondary hover:border-blue hover:text-text-primary'
           }`}
         >
-          ★ Obľúbené
+          {t('scriptList.favoritesOnly')}
         </button>
         <button
           type="button"
           onClick={() => setEverywhereOnly((v) => !v)}
-          title="Zobraziť len skripty, ktoré vedia bežať na hocijakom stroji"
+          title={t('scriptList.everywhereOnlyTitle')}
           className={`rounded border px-3 py-2 text-sm ${
             everywhereOnly
               ? 'border-blue bg-blue text-white'
               : 'border-border-strong bg-panel text-text-secondary hover:border-blue hover:text-text-primary'
           }`}
         >
-          ✓ Všade
+          {t('scriptList.everywhereOnly')}
+        </button>
+        <button
+          type="button"
+          onClick={() => setSecretOnly((v) => !v)}
+          title={t('scriptList.secretOnlyTitle')}
+          className={`rounded border px-3 py-2 text-sm ${
+            secretOnly
+              ? 'border-blue bg-blue text-white'
+              : 'border-border-strong bg-panel text-text-secondary hover:border-blue hover:text-text-primary'
+          }`}
+        >
+          {t('scriptList.secretOnly')}
         </button>
         <button
           type="button"
@@ -160,18 +175,18 @@ export default function ScriptList() {
               : 'border-border-strong bg-panel text-text-secondary hover:border-blue hover:text-text-primary'
           }`}
         >
-          {selectMode ? 'Zrušiť výber' : 'Hromadné úpravy tagov'}
+          {selectMode ? t('scriptList.cancelSelection') : t('scriptList.bulkEdit')}
         </button>
       </div>
 
       {selectMode && (
         <div className="mb-6 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-panel p-3">
           <span className="text-xs text-text-secondary">
-            {selectedIds.size === 0 ? 'Vyber skripty nižšie kliknutím...' : `Vybraných: ${selectedIds.size}`}
+            {selectedIds.size === 0 ? t('scriptList.selectHint') : t('scriptList.selectedCount', { count: selectedIds.size })}
           </span>
           <input
             type="text"
-            placeholder="pridať tag"
+            placeholder={t('scriptList.addTagPlaceholder')}
             value={bulkAddTag}
             onChange={(e) => setBulkAddTag(e.target.value)}
             disabled={selectedIds.size === 0}
@@ -179,7 +194,7 @@ export default function ScriptList() {
           />
           <input
             type="text"
-            placeholder="odstrániť tag"
+            placeholder={t('scriptList.removeTagPlaceholder')}
             value={bulkRemoveTag}
             onChange={(e) => setBulkRemoveTag(e.target.value)}
             disabled={selectedIds.size === 0}
@@ -191,7 +206,7 @@ export default function ScriptList() {
             disabled={selectedIds.size === 0 || bulkApplying || (!bulkAddTag.trim() && !bulkRemoveTag.trim())}
             className="rounded bg-blue px-3 py-1 text-xs font-medium text-white hover:bg-blue-light disabled:opacity-50"
           >
-            {bulkApplying ? 'Ukladám...' : 'Použiť'}
+            {bulkApplying ? t('scriptList.applying') : t('scriptList.apply')}
           </button>
           {bulkMessage && <span className="text-xs text-text-tertiary">{bulkMessage}</span>}
         </div>
@@ -199,7 +214,7 @@ export default function ScriptList() {
 
       {!selectMode && !q && recentScripts.length > 0 && (
         <div className="mb-4">
-          <h3 className="mb-1.5 text-xs uppercase tracking-wide text-text-tertiary">Naposledy otvorené</h3>
+          <h3 className="mb-1.5 text-xs uppercase tracking-wide text-text-tertiary">{t('scriptList.recentlyOpened')}</h3>
           <div className="flex flex-wrap gap-1.5">
             {recentScripts.map((s) => (
               <Link
@@ -239,7 +254,7 @@ export default function ScriptList() {
               onClick={() => setSelectedTags(new Set())}
               className="rounded-full px-2.5 py-1 text-xs text-text-tertiary hover:text-warning"
             >
-              zrušiť filter ×
+              {t('scriptList.clearFilter')}
             </button>
           )}
         </div>
@@ -247,11 +262,11 @@ export default function ScriptList() {
 
       {error && <p className="text-warning">{error}</p>}
       {!loading && scripts.length === 0 && (
-        <p className="text-text-tertiary">Žiadne skripty nenájdené.</p>
+        <p className="text-text-tertiary">{t('scriptList.noScriptsFound')}</p>
       )}
       {scripts.length > 0 && (
         <p className="mb-3 text-xs text-text-tertiary">
-          {Math.min(visibleCount, scripts.length)} z {scripts.length}
+          {t('scriptList.showingCount', { shown: Math.min(visibleCount, scripts.length), total: scripts.length })}
         </p>
       )}
 
@@ -284,7 +299,7 @@ export default function ScriptList() {
                     className="h-3.5 w-3.5"
                   />
                 )}
-                <span title={s.name.endsWith('.py') ? 'Python' : s.name.endsWith('.sh') ? 'Shell' : 'Skript'}>
+                <span title={s.name.endsWith('.py') ? t('scriptList.typePython') : s.name.endsWith('.sh') ? t('scriptList.typeShell') : t('scriptList.typeScript')}>
                   {scriptIcon(s.name)}
                 </span>
                 <span className="min-w-0 break-words">{s.name}</span>
@@ -292,16 +307,16 @@ export default function ScriptList() {
               <div className="flex items-center gap-2">
                 {s.has_possible_secret && (
                   <span
-                    title="Obsah možno obsahuje heslo/token"
+                    title={t('scriptList.secretBadgeTitle')}
                     className="rounded border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[10px] uppercase text-warning"
                   >
-                    secret?
+                    {t('scriptList.secretBadge')}
                   </span>
                 )}
                 <button
                   type="button"
                   onClick={(e) => handleToggleFavorite(e, s.id)}
-                  title={s.is_favorite ? 'Odobrať z obľúbených' : 'Pridať medzi obľúbené'}
+                  title={s.is_favorite ? t('scriptList.removeFavorite') : t('scriptList.addFavorite')}
                   className={`text-sm ${s.is_favorite ? 'text-warning' : 'text-text-tertiary hover:text-warning'}`}
                 >
                   {s.is_favorite ? '★' : '☆'}
@@ -309,7 +324,7 @@ export default function ScriptList() {
               </div>
             </div>
             <p className="mb-2 text-sm text-text-secondary">
-              {s.short_description || <em className="text-text-tertiary">bez popisu</em>}
+              {s.short_description || <em className="text-text-tertiary">{t('scriptList.noDescription')}</em>}
             </p>
             <div className="flex flex-wrap gap-1.5 text-xs text-text-tertiary">
               {s.host && (
@@ -317,10 +332,10 @@ export default function ScriptList() {
               )}
               {s.works_everywhere ? (
                 <span
-                  title="Funguje na hocijakom stroji"
+                  title={t('scriptList.everywhereBadgeTitle')}
                   className="rounded bg-fjord px-1.5 py-0.5 text-success"
                 >
-                  ✓ všade
+                  {t('scriptList.everywhereBadge')}
                 </span>
               ) : null}
               {s.run_mode && <span className="rounded bg-fjord px-1.5 py-0.5">{s.run_mode}</span>}
@@ -354,7 +369,7 @@ export default function ScriptList() {
           onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}
           className="mt-4 w-full rounded border border-border-strong py-2 text-sm text-text-secondary hover:border-blue hover:text-text-primary"
         >
-          Zobraziť ďalších {Math.min(PAGE_SIZE, scripts.length - visibleCount)}
+          {t('scriptList.showMore', { count: Math.min(PAGE_SIZE, scripts.length - visibleCount) })}
         </button>
       )}
     </div>

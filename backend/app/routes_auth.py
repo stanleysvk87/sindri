@@ -1,16 +1,37 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from app.auth import COOKIE_NAME, check_password, create_session, require_auth
+from app.auth import (
+    COOKIE_NAME,
+    check_password,
+    clear_failed_logins,
+    create_session,
+    is_locked_out,
+    record_failed_login,
+    require_auth,
+)
 from app.models import LoginRequest
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
 @router.post("/login")
-def login(payload: LoginRequest, response: Response):
+def login(payload: LoginRequest, request: Request, response: Response):
+    ip = _client_ip(request)
+    if is_locked_out(ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Príliš veľa neúspešných pokusov -- skús to znova o pár minút.",
+        )
+
     if not check_password(payload.password):
+        record_failed_login(ip)
         raise HTTPException(status_code=401, detail="Wrong password")
 
+    clear_failed_logins(ip)
     token = create_session()
     response.set_cookie(
         key=COOKIE_NAME,

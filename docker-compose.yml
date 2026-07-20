@@ -20,8 +20,8 @@ services:
       # inside the container (same absolute paths, not remapped under
       # /home/sindri) so every symlink in ~/.local/bin resolves exactly
       # like it does on the host, version bumps included.
-      HOME: /home/stanley
-      PATH: /home/stanley/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      HOME: ${HOME}
+      PATH: ${HOME}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     volumes:
       - sindri-data:/data
       # Mount whatever script folders you want to be able to scan/import
@@ -34,11 +34,11 @@ services:
       # docs/AI_FEATURES.md for why each path is (:ro) or read-write, and
       # the HOME/PATH override above for why these mirror host paths
       # exactly instead of remapping under /home/sindri.
-      - ${HOME}/.claude:/home/stanley/.claude:ro
-      - ${HOME}/.claude.json:/home/stanley/.claude.json:ro
-      - ${HOME}/.local/bin:/home/stanley/.local/bin:ro
-      - ${HOME}/.local/share/claude:/home/stanley/.local/share/claude:ro
-      - ${HOME}/.codex:/home/stanley/.codex
+      - ${HOME}/.claude:${HOME}/.claude:ro
+      - ${HOME}/.claude.json:${HOME}/.claude.json:ro
+      - ${HOME}/.local/bin:${HOME}/.local/bin:ro
+      - ${HOME}/.local/share/claude:${HOME}/.local/share/claude:ro
+      - ${HOME}/.codex:${HOME}/.codex
       #
       # Optional -- "Testovať v sandboxe" (isolated one-off container per
       # run, see docs/SANDBOX.md). Grants the backend the ability to talk

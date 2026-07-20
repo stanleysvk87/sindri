@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
+import { useTranslation } from '../i18n/I18nContext.jsx'
 
 function scriptIcon(name) {
   if (name.endsWith('.py')) return '🐍'
@@ -15,6 +16,7 @@ export default function CommandPalette() {
   const [activeIndex, setActiveIndex] = useState(0)
   const inputRef = useRef(null)
   const navigate = useNavigate()
+  const { t } = useTranslation()
 
   useEffect(() => {
     function onKeyDown(e) {
@@ -86,7 +88,7 @@ export default function CommandPalette() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Hľadaj skript podľa mena, popisu, obsahu... (Esc na zavretie)"
+          placeholder={t('commandPalette.placeholder')}
           className="w-full rounded-t-lg border-b border-border bg-panel px-4 py-3 text-sm text-text-primary outline-none"
         />
         {results.length > 0 && (
@@ -111,7 +113,7 @@ export default function CommandPalette() {
           </div>
         )}
         {q && results.length === 0 && (
-          <p className="px-4 py-3 text-sm text-text-tertiary">Žiadne výsledky.</p>
+          <p className="px-4 py-3 text-sm text-text-tertiary">{t('commandPalette.noResults')}</p>
         )}
       </div>
     </div>

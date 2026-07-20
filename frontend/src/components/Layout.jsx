@@ -1,9 +1,12 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import CommandPalette from './CommandPalette'
+import LanguageToggle from './LanguageToggle'
+import { useTranslation } from '../i18n/I18nContext.jsx'
 
 export default function Layout({ children }) {
   const navigate = useNavigate()
+  const { t } = useTranslation()
 
   async function handleLogout() {
     await api.logout()
@@ -21,29 +24,30 @@ export default function Layout({ children }) {
           </Link>
           <nav className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm sm:gap-x-4">
             <Link to="/" className="text-text-secondary hover:text-text-primary">
-              Katalóg
+              {t('layout.catalog')}
             </Link>
             <Link to="/settings" className="text-text-secondary hover:text-text-primary">
-              Nastavenia
+              {t('layout.settings')}
             </Link>
             <span
-              title="Otvor rýchle hľadanie (Ctrl+K)"
+              title={t('layout.quickSearchHint')}
               className="hidden rounded border border-border-strong px-1.5 py-0.5 text-[10px] text-text-tertiary sm:inline"
             >
               Ctrl+K
             </span>
+            <LanguageToggle />
             <Link
               to="/add"
               className="rounded bg-blue px-3 py-1.5 font-medium text-white hover:bg-blue-light"
             >
-              + Pridať skript
+              {t('layout.addScript')}
             </Link>
             <button
               type="button"
               onClick={handleLogout}
               className="text-text-tertiary hover:text-text-secondary"
             >
-              Odhlásiť
+              {t('layout.logout')}
             </button>
           </nav>
         </div>

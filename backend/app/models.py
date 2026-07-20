@@ -168,3 +168,12 @@ class BulkTagRequest(BaseModel):
     ids: list[int]
     add: str = ""  # comma-separated tags to add
     remove: str = ""  # comma-separated tags to remove
+
+
+class TagRenameRequest(BaseModel):
+    old: str
+    new: str
+
+
+class TagDeleteRequest(BaseModel):
+    tag: str

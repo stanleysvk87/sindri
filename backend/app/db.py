@@ -28,11 +28,37 @@ CREATE TABLE IF NOT EXISTS scripts (
 CREATE INDEX IF NOT EXISTS idx_scripts_host ON scripts(host);
 CREATE INDEX IF NOT EXISTS idx_scripts_source_ref ON scripts(source_ref);
 
+-- Snapshot of a script's content taken right before it gets overwritten
+-- (manual edit, rescan-from-source, or restoring an older version) --
+-- see app/versions.py. ON DELETE CASCADE relies on the
+-- "PRAGMA foreign_keys=ON" set in get_conn() below.
+CREATE TABLE IF NOT EXISTS script_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    script_id INTEGER NOT NULL REFERENCES scripts(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_script_versions_script_id ON script_versions(script_id);
+
 CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL
 );
+
+-- Failed login attempts, per source IP -- see auth.py's is_locked_out().
+-- Only failures are recorded (a successful login clears its IP's rows),
+-- so this never grows on legitimate use, only under repeated wrong
+-- passwords from the same address.
+CREATE TABLE IF NOT EXISTS login_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ip TEXT NOT NULL,
+    attempted_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip);
 
 -- Tracks which built-in template names have ever been seeded, so a
 -- template is inserted exactly once ever -- a restart never resurrects

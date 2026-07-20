@@ -119,6 +119,17 @@ def pull_file(machine: dict, remote_path: str) -> str:
         raise RemoteExecError(f"Obsah {remote_path} sa nepodarilo dekódovať: {exc}") from exc
 
 
+def remote_file_exists(machine: dict, remote_path: str) -> bool:
+    """Cheap existence check over SSH, used by the orphaned-source scan --
+    avoids pulling the whole file just to find out whether it's still
+    there."""
+    quoted_path = shlex.quote(remote_path)
+    result = run_remote(machine, f"test -f {quoted_path} && echo EXISTS || echo MISSING", None)
+    if result["timed_out"]:
+        raise RemoteExecError("Kontrola existencie súboru vypršala (timeout).")
+    return "EXISTS" in result["stdout"]
+
+
 def push_file(machine: dict, remote_path: str, content: str) -> dict:
     """Write `content` to `remote_path` on `machine` over SSH -- the
     other direction of scan_remote_path, for "edit here, send it back"

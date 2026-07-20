@@ -13,6 +13,13 @@ COOKIE_NAME = "sindri_session"
 SESSION_TTL = timedelta(days=14)
 PBKDF2_ITERATIONS = 200_000
 
+# Login brute-force protection -- there's exactly one account, so a
+# per-IP sliding window is enough (no per-user lockout to reason about).
+# 5 wrong passwords in 15 minutes locks that IP out until the window
+# rolls forward; a correct login clears the IP's history immediately.
+LOGIN_ATTEMPT_WINDOW = timedelta(minutes=15)
+LOGIN_ATTEMPT_MAX = 5
+
 
 def _env_password() -> str:
     pw = os.environ.get("SINDRI_PASSWORD", "")
@@ -58,11 +65,44 @@ def create_session() -> str:
     now = datetime.now(timezone.utc)
     expires = now + SESSION_TTL
     with get_conn() as conn:
+        # Opportunistic cleanup -- sessions are never otherwise deleted,
+        # so without this the table grows forever. Piggybacks on every
+        # login instead of needing a separate cron/timer.
+        conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now.isoformat(),))
         conn.execute(
             "INSERT INTO sessions (token, created_at, expires_at) VALUES (?, ?, ?)",
             (token, now.isoformat(), expires.isoformat()),
         )
     return token
+
+
+def is_locked_out(ip: str) -> bool:
+    cutoff = (datetime.now(timezone.utc) - LOGIN_ATTEMPT_WINDOW).isoformat()
+    with get_conn() as conn:
+        # Anything older than the window is irrelevant to the lockout
+        # decision anyway -- delete it here so the table can't grow
+        # unbounded under a sustained attack that never logs in
+        # successfully from any single IP (the only other cleanup
+        # trigger).
+        conn.execute("DELETE FROM login_attempts WHERE attempted_at < ?", (cutoff,))
+        count = conn.execute(
+            "SELECT COUNT(*) c FROM login_attempts WHERE ip = ? AND attempted_at > ?",
+            (ip, cutoff),
+        ).fetchone()["c"]
+    return count >= LOGIN_ATTEMPT_MAX
+
+
+def record_failed_login(ip: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO login_attempts (ip, attempted_at) VALUES (?, ?)",
+            (ip, datetime.now(timezone.utc).isoformat()),
+        )
+
+
+def clear_failed_logins(ip: str) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM login_attempts WHERE ip = ?", (ip,))
 
 
 def session_valid(token: str | None) -> bool:

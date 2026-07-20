@@ -1,12 +1,15 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
+import { useTranslation } from '../i18n/I18nContext.jsx'
+import LanguageToggle from '../components/LanguageToggle'
 
 export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const { t } = useTranslation()
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -15,8 +18,8 @@ export default function Login() {
     try {
       await api.login(password)
       navigate('/')
-    } catch {
-      setError('Nesprávne heslo.')
+    } catch (err) {
+      setError(err.status === 429 ? err.message : t('login.wrongPassword'))
     } finally {
       setLoading(false)
     }
@@ -28,12 +31,15 @@ export default function Login() {
         onSubmit={handleSubmit}
         className="w-full max-w-sm rounded-lg border border-border bg-panel p-8"
       >
-        <h1 className="mb-1 text-xl font-semibold text-text-primary">
-          sin<span className="text-gold">dri</span>
-        </h1>
-        <p className="mb-6 text-sm text-text-secondary">Katalóg skriptov</p>
+        <div className="mb-1 flex items-center justify-between">
+          <h1 className="text-xl font-semibold text-text-primary">
+            sin<span className="text-gold">dri</span>
+          </h1>
+          <LanguageToggle />
+        </div>
+        <p className="mb-6 text-sm text-text-secondary">{t('login.subtitle')}</p>
         <label className="mb-1 block text-sm text-text-secondary" htmlFor="password">
-          Heslo
+          {t('login.passwordLabel')}
         </label>
         <input
           id="password"
@@ -49,7 +55,7 @@ export default function Login() {
           disabled={loading}
           className="w-full rounded bg-blue px-3 py-2 font-medium text-white hover:bg-blue-light disabled:opacity-50"
         >
-          {loading ? 'Prihlasujem...' : 'Prihlásiť'}
+          {loading ? t('login.loggingIn') : t('login.loginButton')}
         </button>
       </form>
     </div>

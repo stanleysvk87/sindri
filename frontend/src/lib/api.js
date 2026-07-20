@@ -11,7 +11,9 @@ async function request(path, options = {}) {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body.detail || `Request failed: ${res.status}`)
+    const err = new Error(body.detail || `Request failed: ${res.status}`)
+    err.status = res.status
+    throw err
   }
   if (res.status === 204) return null
   return res.json()
@@ -24,18 +26,23 @@ export const api = {
   verifyPassword: (password) =>
     request('/auth/verify', { method: 'POST', body: JSON.stringify({ password }) }),
 
-  listScripts: ({ host, tags, q, favorite, everywhere } = {}) => {
+  listScripts: ({ host, tags, q, favorite, everywhere, secret } = {}) => {
     const params = new URLSearchParams()
     if (host) params.set('host', host)
     for (const t of tags || []) params.append('tag', t)
     if (q) params.set('q', q)
     if (favorite) params.set('favorite', 'true')
     if (everywhere) params.set('everywhere', 'true')
+    if (secret) params.set('secret', 'true')
     const qs = params.toString()
     return request(`/scripts${qs ? `?${qs}` : ''}`)
   },
   getScript: (id) => request(`/scripts/${id}`),
   scriptHistory: (id, limit = 50) => request(`/scripts/${id}/history?limit=${limit}`),
+  scriptVersions: (id) => request(`/scripts/${id}/versions`),
+  getScriptVersion: (id, versionId) => request(`/scripts/${id}/versions/${versionId}`),
+  restoreScriptVersion: (id, versionId) =>
+    request(`/scripts/${id}/versions/${versionId}/restore`, { method: 'POST' }),
   updateScript: (id, fields) =>
     request(`/scripts/${id}`, { method: 'PATCH', body: JSON.stringify(fields) }),
   deleteScript: (id) => request(`/scripts/${id}`, { method: 'DELETE' }),
@@ -69,6 +76,10 @@ export const api = {
 
   bulkTag: (ids, add, remove) =>
     request('/scripts/bulk-tag', { method: 'POST', body: JSON.stringify({ ids, add, remove }) }),
+  renameTag: (oldTag, newTag) =>
+    request('/scripts/tags/rename', { method: 'POST', body: JSON.stringify({ old: oldTag, new: newTag }) }),
+  deleteTag: (tag) =>
+    request('/scripts/tags/delete', { method: 'POST', body: JSON.stringify({ tag }) }),
   toggleFavorite: (id) => request(`/scripts/${id}/favorite`, { method: 'POST' }),
   duplicateScript: (id) => request(`/scripts/${id}/duplicate`, { method: 'POST' }),
   remoteExecAll: (scriptId, sudo_password) =>
@@ -79,6 +90,8 @@ export const api = {
 
   hosts: () => request('/scripts/meta/hosts'),
   tags: () => request('/scripts/meta/tags'),
+  orphanedScripts: () => request('/scripts/meta/orphaned'),
+  scheduleCheck: () => request('/scripts/meta/schedule-check'),
   settings: () => request('/settings'),
 
   aiStatus: () => request('/ai/status'),

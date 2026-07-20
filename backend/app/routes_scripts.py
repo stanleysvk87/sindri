@@ -1,7 +1,9 @@
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import Response
 
 from app.audit import for_script, log_action
 from app.auth import require_auth
@@ -20,10 +22,14 @@ from app.models import (
     ScanPathRequest,
     ScriptPasteImport,
     ScriptUpdate,
+    TagDeleteRequest,
+    TagRenameRequest,
 )
-from app.remote_exec import RemoteExecError, run_remote
-from app.remote_import import pull_file, push_file, scan_remote_path
+from app.remote_exec import RemoteExecError, remote_exec_enabled, run_remote
+from app.remote_import import pull_file, push_file, remote_file_exists, scan_remote_path
+from app.schedule_scan import find_mismatches, scan_schedule
 from app.secret_scan import looks_like_it_has_a_secret
+from app.versions import get_version, list_for_script, snapshot
 
 router = APIRouter(prefix="/api/scripts", tags=["scripts"], dependencies=[Depends(require_auth)])
 
@@ -66,6 +72,7 @@ def list_scripts(
     q: str | None = None,
     favorite: bool = False,
     everywhere: bool = False,
+    secret: bool = False,
 ):
     clauses = []
     params: list = []
@@ -77,6 +84,8 @@ def list_scripts(
         clauses.append("is_favorite = 1")
     if everywhere:
         clauses.append("works_everywhere = 1")
+    if secret:
+        clauses.append("has_possible_secret = 1")
     if tag:
         # OR across selected tag chips -- "docker" + "network" means
         # "either category", the way a category filter is normally read,
@@ -120,6 +129,52 @@ def get_script(script_id: int):
 @router.get("/{script_id}/history")
 def script_history(script_id: int, limit: int = 50):
     return {"entries": for_script(script_id, limit)}
+
+
+@router.get("/{script_id}/versions")
+def script_versions(script_id: int):
+    with get_conn() as conn:
+        existing = conn.execute("SELECT id FROM scripts WHERE id = ?", (script_id,)).fetchone()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Script not found")
+    return {"versions": list_for_script(script_id)}
+
+
+@router.get("/{script_id}/versions/{version_id}")
+def get_script_version(script_id: int, version_id: int):
+    version = get_version(version_id)
+    if not version or version["script_id"] != script_id:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return version
+
+
+@router.post("/{script_id}/versions/{version_id}/restore")
+def restore_script_version(script_id: int, version_id: int):
+    """Restore an older content snapshot. Never destructive: the current
+    content is snapshotted first (source='restore'), so restoring is
+    just another point in the history, not a one-way trip -- you can
+    always restore back to where you started."""
+    with get_conn() as conn:
+        script = conn.execute("SELECT * FROM scripts WHERE id = ?", (script_id,)).fetchone()
+    if not script:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    version = get_version(version_id)
+    if not version or version["script_id"] != script_id:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    if version["content"] != script["content"]:
+        snapshot(script_id, script["content"], "restore")
+
+    now = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE scripts SET content = ?, has_possible_secret = ?, updated_at = ? WHERE id = ?",
+            (version["content"], int(looks_like_it_has_a_secret(version["content"])), now, script_id),
+        )
+        row = conn.execute("SELECT * FROM scripts WHERE id = ?", (script_id,)).fetchone()
+    log_action("restore_version", script_id, script["name"], f"version_id={version_id}")
+    return _row_to_dict(row)
 
 
 @router.post("/{script_id}/favorite")
@@ -184,9 +239,14 @@ def update_script(script_id: int, payload: ScriptUpdate):
     params = list(fields.values()) + [script_id]
 
     with get_conn() as conn:
-        existing = conn.execute("SELECT id FROM scripts WHERE id = ?", (script_id,)).fetchone()
-        if not existing:
-            raise HTTPException(status_code=404, detail="Script not found")
+        existing = conn.execute("SELECT id, content FROM scripts WHERE id = ?", (script_id,)).fetchone()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    if "content" in fields and fields["content"] != existing["content"]:
+        snapshot(script_id, existing["content"], "update")
+
+    with get_conn() as conn:
         conn.execute(f"UPDATE scripts SET {set_clause} WHERE id = ?", params)
         row = conn.execute("SELECT * FROM scripts WHERE id = ?", (script_id,)).fetchone()
     return _row_to_dict(row)
@@ -366,6 +426,7 @@ def rescan_script(script_id: int):
 
     changed = new_content != script["content"]
     if changed:
+        snapshot(script_id, script["content"], "rescan")
         with get_conn() as conn:
             conn.execute(
                 "UPDATE scripts SET content = ?, has_possible_secret = ?, updated_at = ? WHERE id = ?",
@@ -411,6 +472,77 @@ def bulk_tag(payload: BulkTagRequest):
             updated += 1
 
     log_action("bulk_tag", None, "", f"ids={len(payload.ids)} add={payload.add!r} remove={payload.remove!r} updated={updated}")
+    return {"updated": updated}
+
+
+@router.post("/tags/rename")
+def rename_tag(payload: TagRenameRequest):
+    """Renames a tag everywhere it's used. If a script already has both
+    the old and new name (e.g. renaming 'docker' to 'infra' on a script
+    that already has 'infra'), the two just merge into one -- same
+    set-based logic as bulk_tag."""
+    old = payload.old.strip()
+    new = payload.new.strip()
+    if not old or not new:
+        raise HTTPException(status_code=400, detail="Staré aj nové meno tagu sú povinné.")
+    if "," in old or "," in new:
+        # Tags are stored as a single comma-separated string per script
+        # (see the `tags` column) -- a tag containing a literal comma
+        # would silently split into two tags the next time it's parsed.
+        raise HTTPException(status_code=400, detail="Meno tagu nesmie obsahovať čiarku.")
+    if old == new:
+        return {"updated": 0}
+
+    now = datetime.now(timezone.utc).isoformat()
+    updated = 0
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, tags FROM scripts WHERE (',' || tags || ',') LIKE ?", (f"%,{old},%",)
+        ).fetchall()
+        for row in rows:
+            current = {t.strip() for t in row["tags"].split(",") if t.strip()}
+            if old not in current:
+                continue
+            current.discard(old)
+            current.add(new)
+            conn.execute(
+                "UPDATE scripts SET tags = ?, updated_at = ? WHERE id = ?",
+                (",".join(sorted(current)), now, row["id"]),
+            )
+            updated += 1
+
+    log_action("tag_rename", None, "", f"{old!r} -> {new!r} updated={updated}")
+    return {"updated": updated}
+
+
+@router.post("/tags/delete")
+def delete_tag(payload: TagDeleteRequest):
+    """Removes a tag from every script that has it -- for cleaning up a
+    typo'd or abandoned tag without hunting down each script by hand."""
+    tag = payload.tag.strip()
+    if not tag:
+        raise HTTPException(status_code=400, detail="Meno tagu je povinné.")
+    if "," in tag:
+        raise HTTPException(status_code=400, detail="Meno tagu nesmie obsahovať čiarku.")
+
+    now = datetime.now(timezone.utc).isoformat()
+    updated = 0
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, tags FROM scripts WHERE (',' || tags || ',') LIKE ?", (f"%,{tag},%",)
+        ).fetchall()
+        for row in rows:
+            current = {t.strip() for t in row["tags"].split(",") if t.strip()}
+            if tag not in current:
+                continue
+            current.discard(tag)
+            conn.execute(
+                "UPDATE scripts SET tags = ?, updated_at = ? WHERE id = ?",
+                (",".join(sorted(current)), now, row["id"]),
+            )
+            updated += 1
+
+    log_action("tag_delete", None, "", f"{tag!r} updated={updated}")
     return {"updated": updated}
 
 
@@ -550,6 +682,115 @@ def confirm_remote_import(payload: RemoteConfirmImportRequest):
     result = {"created": created, "updated": updated}
     log_action("remote_import", None, "", f"machine={machine['name']} {result}")
     return result
+
+
+@router.get("/meta/export")
+def export_catalog():
+    """Full catalog backup as a single downloadable JSON file -- separate
+    from the SQLite DB file itself (which most people never touch
+    directly), and independent of any one script's own history/rollback
+    (versions/audit_log are intentionally not included, this is a
+    content snapshot, not a full DB dump)."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM scripts ORDER BY id").fetchall()
+    scripts = [_row_to_dict(r) for r in rows]
+    payload = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "count": len(scripts),
+        "scripts": scripts,
+    }
+    body = json.dumps(payload, ensure_ascii=False, indent=2)
+    filename = f"sindri-export-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.json"
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/meta/schedule-check")
+def schedule_check():
+    """For each registered machine that has catalog scripts assigned to
+    it, compares the catalog's run_mode claims (free text, entered by
+    hand) against what's actually scheduled there. See
+    app/schedule_scan.py for the matching heuristic and why it's
+    deliberately simple."""
+    if not remote_exec_enabled():
+        raise HTTPException(
+            status_code=400,
+            detail="Vzdialené spustenie je vypnuté (SINDRI_REMOTE_EXEC_ENABLED=false).",
+        )
+
+    machines = list_machines()
+    with get_conn() as conn:
+        scripts = conn.execute(
+            "SELECT id, name, host, run_mode FROM scripts WHERE host != ''"
+        ).fetchall()
+
+    results = []
+    for machine in machines:
+        machine_scripts = [dict(s) for s in scripts if s["host"] == machine["name"]]
+        if not machine_scripts:
+            continue
+        try:
+            dump = scan_schedule(machine)
+        except RemoteExecError as exc:
+            results.append({"machine_name": machine["name"], "error": str(exc)})
+            continue
+        results.append(
+            {
+                "machine_name": machine["name"],
+                "checked": len(machine_scripts),
+                "mismatches": find_mismatches(machine_scripts, dump),
+            }
+        )
+
+    return {"results": results}
+
+
+@router.get("/meta/orphaned")
+def orphaned_scripts():
+    """Scripts whose original source file no longer exists.
+    local_import is checked directly (fast, no SSH). remote_import is
+    checked over SSH but only when remote execution is enabled -- same
+    gate as rescan/push, since there's no other way to reach the
+    machine. A registered machine that got deleted since import also
+    counts as orphaned (nothing left to rescan/push against)."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, name, source_type, source_ref FROM scripts"
+            " WHERE source_type IN ('local_import', 'remote_import')"
+        ).fetchall()
+
+    remote_enabled = remote_exec_enabled()
+    orphaned = []
+    checked = 0
+    skipped_remote = 0
+
+    for row in rows:
+        if row["source_type"] == "local_import":
+            checked += 1
+            if not Path(row["source_ref"]).is_file():
+                orphaned.append({**dict(row), "reason": "missing_file"})
+        else:
+            if not remote_enabled:
+                skipped_remote += 1
+                continue
+            try:
+                machine, path = _resolve_remote_source(row)
+            except HTTPException:
+                orphaned.append({**dict(row), "reason": "machine_gone"})
+                continue
+            checked += 1
+            try:
+                if not remote_file_exists(machine, path):
+                    orphaned.append({**dict(row), "reason": "missing_file"})
+            except RemoteExecError:
+                # Connection problem, not necessarily orphaned -- don't
+                # falsely flag it, and don't count it as checked either.
+                checked -= 1
+
+    return {"orphaned": orphaned, "checked": checked, "skipped_remote": skipped_remote}
 
 
 @router.get("/meta/hosts")

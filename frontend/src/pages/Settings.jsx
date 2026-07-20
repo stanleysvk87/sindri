@@ -1,14 +1,233 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
+import { useTranslation } from '../i18n/I18nContext.jsx'
+
+function TagsManagementSection() {
+  const { t } = useTranslation()
+  const [tags, setTags] = useState([])
+  const [renaming, setRenaming] = useState(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  function reload() {
+    api.tags().then((r) => setTags(r.tags)).catch(() => {})
+  }
+
+  useEffect(reload, [])
+
+  async function handleRename(tag) {
+    const next = renameValue.trim()
+    if (!next || next === tag) {
+      setRenaming(null)
+      return
+    }
+    setBusy(true)
+    try {
+      await api.renameTag(tag, next)
+      setRenaming(null)
+      reload()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleDelete(tag) {
+    if (!confirm(t('settings.tags.confirmDelete', { tag }))) return
+    setBusy(true)
+    try {
+      await api.deleteTag(tag)
+      reload()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div>
+      <h2 className="mb-3 text-lg font-semibold text-text-primary">{t('settings.tags.title')}</h2>
+      <div className="divide-y divide-border rounded-lg border border-border bg-panel">
+        {tags.length === 0 && <p className="p-4 text-sm text-text-tertiary">{t('settings.tags.none')}</p>}
+        {tags.map((tag) => (
+          <div key={tag} className="flex items-center justify-between gap-2 p-3 text-sm">
+            {renaming === tag ? (
+              <input
+                autoFocus
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleRename(tag)}
+                className="rounded border border-border-strong bg-ink px-2 py-1 text-sm text-text-primary outline-none focus:border-blue"
+              />
+            ) : (
+              <span className="text-text-primary">#{tag}</span>
+            )}
+            <div className="flex gap-3 text-xs">
+              {renaming === tag ? (
+                <>
+                  <button type="button" disabled={busy} onClick={() => handleRename(tag)} className="text-blue-light hover:underline">
+                    {t('common.save')}
+                  </button>
+                  <button type="button" onClick={() => setRenaming(null)} className="text-text-tertiary hover:underline">
+                    {t('common.cancel')}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRenaming(tag)
+                      setRenameValue(tag)
+                    }}
+                    className="text-blue-light hover:underline"
+                  >
+                    {t('scriptDetail.editField')}
+                  </button>
+                  <button type="button" disabled={busy} onClick={() => handleDelete(tag)} className="text-warning hover:underline">
+                    {t('settings.tags.delete')}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ScheduleCheckSection() {
+  const { t } = useTranslation()
+  const [result, setResult] = useState(null)
+  const [checking, setChecking] = useState(false)
+  const [error, setError] = useState('')
+
+  async function handleCheck() {
+    setChecking(true)
+    setError('')
+    try {
+      const r = await api.scheduleCheck()
+      setResult(r.results)
+    } catch (err) {
+      setError(err.message || t('settings.scheduleCheck.failed'))
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  return (
+    <div>
+      <h2 className="mb-3 text-lg font-semibold text-text-primary">{t('settings.scheduleCheck.title')}</h2>
+      <div className="rounded-lg border border-border bg-panel p-4">
+        <p className="mb-3 text-xs text-text-tertiary">{t('settings.scheduleCheck.description')}</p>
+        <button
+          type="button"
+          onClick={handleCheck}
+          disabled={checking}
+          className="rounded bg-blue px-4 py-2 text-sm font-medium text-white hover:bg-blue-light disabled:opacity-50"
+        >
+          {checking ? t('settings.scheduleCheck.checking') : t('settings.scheduleCheck.check')}
+        </button>
+        {error && <p className="mt-3 text-sm text-warning">{error}</p>}
+        {result && (
+          <div className="mt-3 flex flex-col gap-3">
+            {result.length === 0 && <p className="text-sm text-text-tertiary">{t('settings.scheduleCheck.noMachines')}</p>}
+            {result.map((r) => (
+              <div key={r.machine_name} className="rounded border border-border bg-ink p-3 text-xs">
+                <p className="mb-2 font-medium text-text-primary">{r.machine_name}</p>
+                {r.error ? (
+                  <p className="text-warning">{r.error}</p>
+                ) : r.mismatches.length === 0 ? (
+                  <p className="text-success">{t('settings.scheduleCheck.allMatch', { checked: r.checked })}</p>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    {r.mismatches.map((m) => (
+                      <Link key={m.id} to={`/scripts/${m.id}`} className="text-text-secondary hover:text-text-primary">
+                        <span className="font-medium">{m.name}</span> —{' '}
+                        <span className="text-warning">
+                          {m.issue === 'claimed_not_found'
+                            ? t('settings.scheduleCheck.claimedNotFound')
+                            : t('settings.scheduleCheck.foundNotClaimed')}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function OrphanedSection() {
+  const { t } = useTranslation()
+  const [result, setResult] = useState(null)
+  const [checking, setChecking] = useState(false)
+
+  async function handleCheck() {
+    setChecking(true)
+    try {
+      const r = await api.orphanedScripts()
+      setResult(r)
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  return (
+    <div>
+      <h2 className="mb-3 text-lg font-semibold text-text-primary">{t('settings.orphaned.title')}</h2>
+      <div className="rounded-lg border border-border bg-panel p-4">
+        <p className="mb-3 text-xs text-text-tertiary">{t('settings.orphaned.description')}</p>
+        <button
+          type="button"
+          onClick={handleCheck}
+          disabled={checking}
+          className="rounded bg-blue px-4 py-2 text-sm font-medium text-white hover:bg-blue-light disabled:opacity-50"
+        >
+          {checking ? t('settings.orphaned.checking') : t('settings.orphaned.check')}
+        </button>
+        {result && (
+          <div className="mt-3">
+            <p className="mb-2 text-xs text-text-tertiary">
+              {t('settings.orphaned.summary', { checked: result.checked, skipped: result.skipped_remote })}
+            </p>
+            {result.orphaned.length === 0 ? (
+              <p className="text-sm text-success">{t('settings.orphaned.none')}</p>
+            ) : (
+              <div className="divide-y divide-border rounded border border-border">
+                {result.orphaned.map((o) => (
+                  <Link key={o.id} to={`/scripts/${o.id}`} className="block p-3 text-sm hover:bg-fjord/30">
+                    <span className="font-medium text-text-primary">{o.name}</span>{' '}
+                    <span className="text-xs text-warning">
+                      {o.reason === 'machine_gone'
+                        ? t('settings.orphaned.reasonMachineGone')
+                        : t('settings.orphaned.reasonMissingFile')}
+                    </span>
+                    <p className="truncate text-xs text-text-tertiary">{o.source_ref}</p>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function MachinesSection() {
+  const { t } = useTranslation()
   const [machines, setMachines] = useState([])
   const [keys, setKeys] = useState([])
   const [form, setForm] = useState({
     name: '',
     host: '',
     port: 22,
-    ssh_user: 'stanley',
+    ssh_user: '',
     auth_type: 'key',
     ssh_key_path: '',
   })
@@ -30,41 +249,37 @@ function MachinesSection() {
     e.preventDefault()
     setError('')
     if (!form.name || !form.host) {
-      setError('Meno a stroj sú povinné.')
+      setError(t('settings.machines.nameHostRequired'))
       return
     }
     if (form.auth_type === 'key' && !form.ssh_key_path) {
-      setError('Vyber SSH kľúč, alebo prepni na heslové prihlásenie.')
+      setError(t('settings.machines.selectKeyOrPassword'))
       return
     }
     try {
       await api.addMachine(form)
-      setForm({ name: '', host: '', port: 22, ssh_user: 'stanley', auth_type: 'key', ssh_key_path: keys[0] || '' })
+      setForm({ name: '', host: '', port: 22, ssh_user: '', auth_type: 'key', ssh_key_path: keys[0] || '' })
       reload()
     } catch {
-      setError('Nepodarilo sa pridať stroj.')
+      setError(t('settings.machines.addFailed'))
     }
   }
 
   async function handleDelete(id) {
-    if (!confirm('Odstrániť tento stroj z registra?')) return
+    if (!confirm(t('settings.machines.confirmDelete'))) return
     await api.deleteMachine(id)
     reload()
   }
 
   return (
     <div>
-      <h2 className="mb-3 text-lg font-semibold text-text-primary">Spravované stroje</h2>
+      <h2 className="mb-3 text-lg font-semibold text-text-primary">{t('settings.machines.title')}</h2>
       {keys.length === 0 && (
-        <p className="mb-4 text-sm text-warning">
-          Žiadne SSH kľúče nenájdené na namontovanej ceste — stroje s kľúčovým prihlásením nebudú
-          fungovať, kým nebude aspoň jeden kľúč dostupný (pozri docker-compose.yml). Heslové
-          prihlásenie funguje aj bez toho.
-        </p>
+        <p className="mb-4 text-sm text-warning">{t('settings.machines.noKeysWarning')}</p>
       )}
       <div className="mb-4 divide-y divide-border rounded-lg border border-border bg-panel">
         {machines.length === 0 && (
-          <p className="p-4 text-sm text-text-tertiary">Žiadne stroje zaregistrované.</p>
+          <p className="p-4 text-sm text-text-tertiary">{t('settings.machines.noneRegistered')}</p>
         )}
         {machines.map((m) => (
           <div key={m.id} className="flex items-center justify-between p-4">
@@ -72,7 +287,7 @@ function MachinesSection() {
               <p className="font-medium text-text-primary">{m.name}</p>
               <p className="text-xs text-text-tertiary">
                 {m.ssh_user}@{m.host}:{m.port} ·{' '}
-                {m.auth_type === 'password' ? 'heslo (zadáva sa pri spustení)' : `kľúč: ${m.ssh_key_path}`}
+                {m.auth_type === 'password' ? t('settings.machines.passwordAuth') : t('settings.machines.keyAuth', { key: m.ssh_key_path })}
               </p>
             </div>
             <button
@@ -80,7 +295,7 @@ function MachinesSection() {
               onClick={() => handleDelete(m.id)}
               className="text-xs text-text-tertiary hover:text-warning"
             >
-              odstrániť
+              {t('settings.machines.remove')}
             </button>
           </div>
         ))}
@@ -88,26 +303,26 @@ function MachinesSection() {
 
       <form onSubmit={handleAdd} className="grid gap-3 sm:grid-cols-2">
         <input
-          placeholder="Meno (napr. opi)"
+          placeholder={t('settings.machines.namePlaceholder')}
           value={form.name}
           onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
           className="rounded border border-border-strong bg-panel px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
         />
         <input
-          placeholder="Host (IP alebo hostname)"
+          placeholder={t('settings.machines.hostPlaceholder')}
           value={form.host}
           onChange={(e) => setForm((f) => ({ ...f, host: e.target.value }))}
           className="rounded border border-border-strong bg-panel px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
         />
         <input
-          placeholder="SSH user"
+          placeholder={t('settings.machines.sshUserPlaceholder')}
           value={form.ssh_user}
           onChange={(e) => setForm((f) => ({ ...f, ssh_user: e.target.value }))}
           className="rounded border border-border-strong bg-panel px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
         />
         <input
           type="number"
-          placeholder="Port"
+          placeholder={t('settings.machines.portPlaceholder')}
           value={form.port}
           onChange={(e) => setForm((f) => ({ ...f, port: Number(e.target.value) }))}
           className="rounded border border-border-strong bg-panel px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
@@ -120,7 +335,7 @@ function MachinesSection() {
               checked={form.auth_type === 'key'}
               onChange={() => setForm((f) => ({ ...f, auth_type: 'key' }))}
             />
-            SSH kľúč
+            {t('settings.machines.keyAuthRadio')}
           </label>
           <label className="flex items-center gap-1.5">
             <input
@@ -128,7 +343,7 @@ function MachinesSection() {
               checked={form.auth_type === 'password'}
               onChange={() => setForm((f) => ({ ...f, auth_type: 'password' }))}
             />
-            Heslo (zadáš pri každom spustení, neukladá sa)
+            {t('settings.machines.passwordAuthRadio')}
           </label>
         </div>
 
@@ -151,7 +366,7 @@ function MachinesSection() {
           type="submit"
           className="w-fit rounded bg-blue px-4 py-2 text-sm font-medium text-white hover:bg-blue-light sm:col-span-2"
         >
-          Pridať stroj
+          {t('settings.machines.addMachine')}
         </button>
       </form>
     </div>
@@ -159,6 +374,7 @@ function MachinesSection() {
 }
 
 function AISection() {
+  const { t } = useTranslation()
   const [config, setConfig] = useState(null)
   const [mode, setMode] = useState('auto')
   const [apiKey, setApiKey] = useState('')
@@ -194,24 +410,24 @@ function AISection() {
 
   return (
     <div>
-      <h2 className="mb-3 text-lg font-semibold text-text-primary">AI nastavenia</h2>
+      <h2 className="mb-3 text-lg font-semibold text-text-primary">{t('settings.ai.title')}</h2>
       <form onSubmit={handleSave} className="rounded-lg border border-border bg-panel p-4">
         <label className="mb-1 block text-xs uppercase tracking-wide text-text-tertiary">
-          Provider mode
+          {t('settings.ai.providerModeLabel')}
         </label>
         <select
           value={mode}
           onChange={(e) => setMode(e.target.value)}
           className="mb-3 w-full rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue sm:w-64"
         >
-          <option value="auto">auto (claude → codex → API kľúč)</option>
-          <option value="claude_cli">len claude CLI</option>
-          <option value="codex_cli">len codex CLI</option>
-          <option value="anthropic_api">len Anthropic API kľúč</option>
+          <option value="auto">{t('settings.ai.autoOption')}</option>
+          <option value="claude_cli">{t('settings.ai.claudeCliOption')}</option>
+          <option value="codex_cli">{t('settings.ai.codexCliOption')}</option>
+          <option value="anthropic_api">{t('settings.ai.apiKeyOption')}</option>
         </select>
 
         <label className="mb-1 block text-xs uppercase tracking-wide text-text-tertiary">
-          Anthropic API kľúč (fallback, voliteľný)
+          {t('settings.ai.apiKeyLabel')}
         </label>
         <input
           type="password"
@@ -219,8 +435,10 @@ function AISection() {
           onChange={(e) => setApiKey(e.target.value)}
           placeholder={
             config.has_api_key
-              ? `nastavený (zdroj: ${config.api_key_source === 'settings' ? 'Nastavenia' : '.env'}) — vlož nový na prepísanie`
-              : 'nenastavený'
+              ? t('settings.ai.apiKeySetPlaceholder', {
+                  source: config.api_key_source === 'settings' ? t('settings.ai.apiKeySourceSettings') : t('settings.ai.apiKeySourceEnv'),
+                })
+              : t('settings.ai.apiKeyUnsetPlaceholder')
           }
           className="mb-3 w-full rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue sm:w-96"
         />
@@ -231,9 +449,9 @@ function AISection() {
             disabled={saving}
             className="rounded bg-blue px-4 py-2 text-sm font-medium text-white hover:bg-blue-light disabled:opacity-50"
           >
-            {saving ? 'Ukladám...' : 'Uložiť'}
+            {saving ? t('settings.ai.saving') : t('settings.ai.save')}
           </button>
-          {saved && <span className="text-sm text-success">Uložené ✓</span>}
+          {saved && <span className="text-sm text-success">{t('settings.ai.saved')}</span>}
         </div>
       </form>
     </div>
@@ -241,6 +459,7 @@ function AISection() {
 }
 
 function HostStatusSection() {
+  const { t } = useTranslation()
   const [machines, setMachines] = useState([])
   const [machineId, setMachineId] = useState('')
   const [checking, setChecking] = useState(false)
@@ -260,7 +479,7 @@ function HostStatusSection() {
       const r = await api.hostStatus(Number(machineId))
       setResult(r)
     } catch (err) {
-      setResult({ error: err.message || 'Zlyhalo.' })
+      setResult({ error: err.message || t('settings.hostStatus.failed') })
     } finally {
       setChecking(false)
     }
@@ -270,12 +489,9 @@ function HostStatusSection() {
 
   return (
     <div>
-      <h2 className="mb-3 text-lg font-semibold text-text-primary">Stav hostiteľa</h2>
+      <h2 className="mb-3 text-lg font-semibold text-text-primary">{t('settings.hostStatus.title')}</h2>
       <div className="rounded-lg border border-border bg-panel p-4">
-        <p className="mb-3 text-xs text-text-tertiary">
-          Beží cez rovnaké SSH spojenie ako vzdialené spustenie — vyber, ktorý zaregistrovaný stroj
-          skontrolovať.
-        </p>
+        <p className="mb-3 text-xs text-text-tertiary">{t('settings.hostStatus.description')}</p>
         <div className="flex flex-wrap items-center gap-3">
           <select
             value={machineId}
@@ -294,7 +510,7 @@ function HostStatusSection() {
             disabled={checking}
             className="rounded bg-blue px-4 py-2 text-sm font-medium text-white hover:bg-blue-light disabled:opacity-50"
           >
-            {checking ? 'Kontrolujem...' : 'Skontrolovať'}
+            {checking ? t('settings.hostStatus.checking') : t('settings.hostStatus.check')}
           </button>
         </div>
         {result && (
@@ -314,6 +530,7 @@ function HostStatusSection() {
 }
 
 function StatsSection() {
+  const { t } = useTranslation()
   const [stats, setStats] = useState(null)
 
   useEffect(() => {
@@ -324,15 +541,24 @@ function StatsSection() {
 
   return (
     <div>
-      <h2 className="mb-3 text-lg font-semibold text-text-primary">Prehľad katalógu</h2>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-text-primary">{t('settings.stats.title')}</h2>
+        <a
+          href="/api/scripts/meta/export"
+          download
+          className="text-xs text-blue-light hover:underline"
+        >
+          {t('settings.stats.export')}
+        </a>
+      </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-lg border border-border bg-panel p-4">
           <p className="text-2xl font-semibold text-text-primary">{stats.total_scripts}</p>
-          <p className="text-xs text-text-tertiary">skriptov spolu</p>
+          <p className="text-xs text-text-tertiary">{t('settings.stats.totalScripts')}</p>
         </div>
         <div className="rounded-lg border border-border bg-panel p-4">
           <p className="text-2xl font-semibold text-text-primary">{stats.possible_secrets}</p>
-          <p className="text-xs text-text-tertiary">s možným heslom/tokenom</p>
+          <p className="text-xs text-text-tertiary">{t('settings.stats.possibleSecrets')}</p>
         </div>
         {Object.entries(stats.by_host).map(([host, count]) => (
           <div key={host} className="rounded-lg border border-border bg-panel p-4">
@@ -346,6 +572,7 @@ function StatsSection() {
 }
 
 function AccountSection() {
+  const { t } = useTranslation()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newPassword2, setNewPassword2] = useState('')
@@ -358,11 +585,11 @@ function AccountSection() {
     setError('')
     setSaved(false)
     if (newPassword.length < 8) {
-      setError('Nové heslo musí mať aspoň 8 znakov.')
+      setError(t('settings.account.passwordTooShort'))
       return
     }
     if (newPassword !== newPassword2) {
-      setError('Nové heslá sa nezhodujú.')
+      setError(t('settings.account.passwordsDontMatch'))
       return
     }
     setSaving(true)
@@ -373,7 +600,7 @@ function AccountSection() {
       setNewPassword2('')
       setSaved(true)
     } catch (err) {
-      setError(err.message === 'Request failed: 401' ? 'Súčasné heslo nesedí.' : 'Nepodarilo sa zmeniť heslo.')
+      setError(err.message === 'Request failed: 401' ? t('settings.account.wrongCurrentPassword') : t('settings.account.changeFailed'))
     } finally {
       setSaving(false)
     }
@@ -381,37 +608,37 @@ function AccountSection() {
 
   return (
     <div>
-      <h2 className="mb-3 text-lg font-semibold text-text-primary">Účet</h2>
+      <h2 className="mb-3 text-lg font-semibold text-text-primary">{t('settings.account.title')}</h2>
       <form onSubmit={handleSubmit} className="grid gap-3 rounded-lg border border-border bg-panel p-4 sm:w-96">
         <input
           type="password"
-          placeholder="Súčasné heslo"
+          placeholder={t('settings.account.currentPasswordPlaceholder')}
           value={currentPassword}
           onChange={(e) => setCurrentPassword(e.target.value)}
           className="rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
         />
         <input
           type="password"
-          placeholder="Nové heslo (min. 8 znakov)"
+          placeholder={t('settings.account.newPasswordPlaceholder')}
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
           className="rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
         />
         <input
           type="password"
-          placeholder="Zopakuj nové heslo"
+          placeholder={t('settings.account.repeatPasswordPlaceholder')}
           value={newPassword2}
           onChange={(e) => setNewPassword2(e.target.value)}
           className="rounded border border-border-strong bg-ink px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
         />
         {error && <p className="text-sm text-warning">{error}</p>}
-        {saved && <p className="text-sm text-success">Heslo zmenené ✓</p>}
+        {saved && <p className="text-sm text-success">{t('settings.account.changed')}</p>}
         <button
           type="submit"
           disabled={saving || !currentPassword || !newPassword}
           className="w-fit rounded bg-blue px-4 py-2 text-sm font-medium text-white hover:bg-blue-light disabled:opacity-50"
         >
-          {saving ? 'Ukladám...' : 'Zmeniť heslo'}
+          {saving ? t('settings.account.saving') : t('settings.account.changePassword')}
         </button>
       </form>
     </div>
@@ -419,6 +646,7 @@ function AccountSection() {
 }
 
 function AppLogSection() {
+  const { t } = useTranslation()
   const [log, setLog] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -432,17 +660,17 @@ function AppLogSection() {
   return (
     <div>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-text-primary">Logy appky</h2>
+        <h2 className="text-lg font-semibold text-text-primary">{t('settings.appLog.title')}</h2>
         <button
           type="button"
           onClick={reload}
           className="text-xs text-blue-light hover:underline"
         >
-          {loading ? 'Načítavam...' : 'Obnoviť'}
+          {loading ? t('settings.appLog.refreshing') : t('settings.appLog.refresh')}
         </button>
       </div>
       <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-panel p-4 font-mono text-xs text-text-secondary">
-        {log || 'Zatiaľ žiadne zaznamenané chyby.'}
+        {log || t('settings.appLog.noErrors')}
       </pre>
     </div>
   )
@@ -452,6 +680,9 @@ export default function Settings() {
   return (
     <div className="grid gap-8">
       <StatsSection />
+      <TagsManagementSection />
+      <ScheduleCheckSection />
+      <OrphanedSection />
       <HostStatusSection />
       <MachinesSection />
       <AISection />
@@ -463,6 +694,7 @@ export default function Settings() {
 }
 
 function AuditLogSection() {
+  const { t, lang } = useTranslation()
   const [entries, setEntries] = useState([])
 
   useEffect(() => {
@@ -471,14 +703,14 @@ function AuditLogSection() {
 
   return (
     <div>
-      <h2 className="mb-3 text-lg font-semibold text-text-primary">Log aktivity</h2>
+      <h2 className="mb-3 text-lg font-semibold text-text-primary">{t('settings.auditLog.title')}</h2>
       <div className="divide-y divide-border rounded-lg border border-border bg-panel">
         {entries.length === 0 && (
-          <p className="p-4 text-sm text-text-tertiary">Zatiaľ žiadna aktivita.</p>
+          <p className="p-4 text-sm text-text-tertiary">{t('settings.auditLog.noActivity')}</p>
         )}
         {entries.map((e) => (
           <div key={e.id} className="p-3 text-sm">
-            <span className="text-text-tertiary">{new Date(e.created_at).toLocaleString('sk-SK')}</span>
+            <span className="text-text-tertiary">{new Date(e.created_at).toLocaleString(lang === 'en' ? 'en-US' : 'sk-SK')}</span>
             {' — '}
             <span className="font-medium text-text-primary">{e.action}</span>
             {e.script_name && <span className="text-text-secondary"> {e.script_name}</span>}
