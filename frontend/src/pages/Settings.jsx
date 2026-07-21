@@ -607,6 +607,8 @@ export default function Settings() {
 function AuditLogSection() {
   const { t, lang } = useTranslation()
   const [entries, setEntries] = useState([])
+  const PAGE_SIZE = 20
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
 
   useEffect(() => {
     api.auditLog().then((r) => setEntries(r.entries)).catch(() => {})
@@ -619,7 +621,7 @@ function AuditLogSection() {
         {entries.length === 0 && (
           <p className="p-4 text-sm text-text-tertiary">{t('settings.auditLog.noActivity')}</p>
         )}
-        {entries.map((e) => (
+        {entries.slice(0, visibleCount).map((e) => (
           <div key={e.id} className="p-3 text-sm">
             <span className="text-text-tertiary">{new Date(e.created_at).toLocaleString(lang === 'en' ? 'en-US' : 'sk-SK')}</span>
             {' — '}
@@ -629,6 +631,15 @@ function AuditLogSection() {
           </div>
         ))}
       </div>
+      {visibleCount < entries.length && (
+        <button
+          type="button"
+          onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}
+          className="mt-2 w-full rounded border border-border-strong py-2 text-sm text-text-secondary hover:border-blue hover:text-text-primary"
+        >
+          {t('scriptList.showMore', { count: Math.min(PAGE_SIZE, entries.length - visibleCount) })}
+        </button>
+      )}
     </div>
   )
 }
