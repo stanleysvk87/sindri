@@ -88,6 +88,7 @@ export const en = {
       generateFailed: 'Generation failed.',
       nameRequired: 'Name is required.',
       addFailed: 'Adding failed.',
+      sourceRefValue: 'AI generated',
       nameLabel: 'Name *',
       hostLabel: 'Machine',
       reviewHint: 'Review the generated content before adding — AI can make mistakes.',

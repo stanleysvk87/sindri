@@ -49,7 +49,7 @@ function AIGenerateTab() {
     }
     setAdding(true)
     try {
-      const created = await api.importPaste({ ...form, source_ref: 'AI vygenerované' })
+      const created = await api.importPaste({ ...form, source_ref: t('addScript.ai.sourceRefValue') })
       navigate(`/scripts/${created.id}`)
     } catch {
       setError(t('addScript.ai.addFailed'))

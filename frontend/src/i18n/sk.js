@@ -88,6 +88,7 @@ export const sk = {
       generateFailed: 'Generovanie zlyhalo.',
       nameRequired: 'Meno je povinné.',
       addFailed: 'Pridanie zlyhalo.',
+      sourceRefValue: 'AI vygenerované',
       nameLabel: 'Meno *',
       hostLabel: 'Stroj',
       reviewHint: 'Skontroluj vygenerovaný obsah pred pridaním — AI sa môže mýliť.',
