@@ -5,6 +5,7 @@ import { recordVisit } from '../lib/recent'
 import { copyToClipboard } from '../lib/clipboard'
 import { useTranslation } from '../i18n/I18nContext.jsx'
 import DiffView from '../components/DiffView'
+import HighlightedContent from '../components/HighlightedContent'
 
 // Display-only masking (mirrors backend/app/secret_scan.py's heuristics
 // loosely) -- hides likely secrets by default so a shoulder-surf or
@@ -824,7 +825,7 @@ export default function ScriptDetail() {
         </form>
       )}
       <pre className="overflow-x-auto rounded-lg border border-border bg-panel p-4 font-mono text-xs text-text-primary">
-        {script.has_possible_secret && !revealSecrets ? maskSecrets(script.content) : script.content}
+        <HighlightedContent content={script.has_possible_secret && !revealSecrets ? maskSecrets(script.content) : script.content} />
       </pre>
 
       {remotePanelOpen && (
