@@ -49,6 +49,8 @@ export const en = {
     clearFilter: 'clear filter ×',
     noScriptsFound: 'No scripts found.',
     showingCount: '{{shown}} of {{total}}',
+    showingGroupedCount: '{{total}} across {{groups}} categories',
+    uncategorized: 'uncategorized',
     noDescription: 'no description',
     secretBadge: 'secret?',
     secretBadgeTitle: 'Content may contain a password/token',

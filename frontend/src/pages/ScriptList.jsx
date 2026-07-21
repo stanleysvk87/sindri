@@ -108,6 +108,110 @@ export default function ScriptList() {
     }
   }
 
+  // Referenčné katalógy (host=cheatsheet/pentest) majú desiatky záznamov
+  // rozdelených do kategórií cez druhý tag (napr. "cheatsheet,docker,claude"
+  // -> kategória "docker"). Zoskupenie sa aplikuje len keď prehliadaš celý
+  // zoznam bez ďalšieho filtra (tag click / hľadanie), aby sa to nebilo s
+  // existujúcim tag-filter mechanizmom.
+  const CATALOG_HOSTS = ['cheatsheet', 'pentest']
+  const groupedView = CATALOG_HOSTS.includes(host) && selectedTags.size === 0 && !q
+  const categoryGroups = groupedView
+    ? Object.entries(
+        scripts.reduce((acc, s) => {
+          const parts = (s.tags || '').split(',').map((x) => x.trim()).filter(Boolean)
+          const category = parts[1] || t('scriptList.uncategorized')
+          ;(acc[category] ||= []).push(s)
+          return acc
+        }, {})
+      ).sort(([a], [b]) => a.localeCompare(b))
+    : []
+
+  function renderCard(s) {
+    const CardWrapper = selectMode ? 'div' : Link
+    const wrapperProps = selectMode
+      ? { onClick: () => toggleSelected(s.id), role: 'button' }
+      : { to: `/scripts/${s.id}` }
+    return (
+      <CardWrapper
+        key={s.id}
+        {...wrapperProps}
+        className={`min-w-0 rounded-lg border p-4 transition ${
+          selectMode && selectedIds.has(s.id)
+            ? 'cursor-pointer border-blue bg-fjord'
+            : selectMode
+              ? 'cursor-pointer border-border bg-panel hover:border-blue'
+              : 'border-border bg-panel hover:border-blue'
+        }`}
+      >
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <span className="flex min-w-0 items-center gap-2 font-medium text-text-primary">
+            {selectMode && (
+              <input
+                type="checkbox"
+                checked={selectedIds.has(s.id)}
+                onChange={() => toggleSelected(s.id)}
+                onClick={(e) => e.stopPropagation()}
+                className="h-3.5 w-3.5"
+              />
+            )}
+            <span title={s.name.endsWith('.py') ? t('scriptList.typePython') : s.name.endsWith('.sh') ? t('scriptList.typeShell') : t('scriptList.typeScript')}>
+              {scriptIcon(s.name)}
+            </span>
+            <span className="min-w-0 break-words">{s.name}</span>
+          </span>
+          <div className="flex items-center gap-2">
+            {s.has_possible_secret && (
+              <span
+                title={t('scriptList.secretBadgeTitle')}
+                className="rounded border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[10px] uppercase text-warning"
+              >
+                {t('scriptList.secretBadge')}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={(e) => handleToggleFavorite(e, s.id)}
+              title={s.is_favorite ? t('scriptList.removeFavorite') : t('scriptList.addFavorite')}
+              className={`text-sm ${s.is_favorite ? 'text-warning' : 'text-text-tertiary hover:text-warning'}`}
+            >
+              {s.is_favorite ? '★' : '☆'}
+            </button>
+          </div>
+        </div>
+        <p className="mb-2 text-sm text-text-secondary">
+          {s.short_description || <em className="text-text-tertiary">{t('scriptList.noDescription')}</em>}
+        </p>
+        <div className="flex flex-wrap gap-1.5 text-xs text-text-tertiary">
+          {s.host && <span className="rounded bg-fjord px-1.5 py-0.5 text-blue-light">{s.host}</span>}
+          {s.works_everywhere ? (
+            <span title={t('scriptList.everywhereBadgeTitle')} className="rounded bg-fjord px-1.5 py-0.5 text-success">
+              {t('scriptList.everywhereBadge')}
+            </span>
+          ) : null}
+          {s.run_mode && <span className="rounded bg-fjord px-1.5 py-0.5">{s.run_mode}</span>}
+          {s.tags
+            .split(',')
+            .map((tg) => tg.trim())
+            .filter(Boolean)
+            .map((tg) => (
+              <span
+                key={tg}
+                role="button"
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  toggleTag(tg)
+                }}
+                className="rounded bg-fjord px-1.5 py-0.5 hover:text-blue-light"
+              >
+                #{tg}
+              </span>
+            ))}
+        </div>
+      </CardWrapper>
+    )
+  }
+
   return (
     <div>
       <div className="mb-4 flex flex-col flex-wrap gap-3 sm:flex-row sm:items-center">
@@ -266,111 +370,39 @@ export default function ScriptList() {
       )}
       {scripts.length > 0 && (
         <p className="mb-3 text-xs text-text-tertiary">
-          {t('scriptList.showingCount', { shown: Math.min(visibleCount, scripts.length), total: scripts.length })}
+          {groupedView
+            ? t('scriptList.showingGroupedCount', { total: scripts.length, groups: categoryGroups.length })
+            : t('scriptList.showingCount', { shown: Math.min(visibleCount, scripts.length), total: scripts.length })}
         </p>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        {scripts.slice(0, visibleCount).map((s) => {
-          const CardWrapper = selectMode ? 'div' : Link
-          const wrapperProps = selectMode
-            ? { onClick: () => toggleSelected(s.id), role: 'button' }
-            : { to: `/scripts/${s.id}` }
-          return (
-          <CardWrapper
-            key={s.id}
-            {...wrapperProps}
-            className={`min-w-0 rounded-lg border p-4 transition ${
-              selectMode && selectedIds.has(s.id)
-                ? 'cursor-pointer border-blue bg-fjord'
-                : selectMode
-                  ? 'cursor-pointer border-border bg-panel hover:border-blue'
-                  : 'border-border bg-panel hover:border-blue'
-            }`}
-          >
-            <div className="mb-1 flex items-center justify-between gap-2">
-              <span className="flex min-w-0 items-center gap-2 font-medium text-text-primary">
-                {selectMode && (
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(s.id)}
-                    onChange={() => toggleSelected(s.id)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="h-3.5 w-3.5"
-                  />
-                )}
-                <span title={s.name.endsWith('.py') ? t('scriptList.typePython') : s.name.endsWith('.sh') ? t('scriptList.typeShell') : t('scriptList.typeScript')}>
-                  {scriptIcon(s.name)}
-                </span>
-                <span className="min-w-0 break-words">{s.name}</span>
-              </span>
-              <div className="flex items-center gap-2">
-                {s.has_possible_secret && (
-                  <span
-                    title={t('scriptList.secretBadgeTitle')}
-                    className="rounded border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[10px] uppercase text-warning"
-                  >
-                    {t('scriptList.secretBadge')}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={(e) => handleToggleFavorite(e, s.id)}
-                  title={s.is_favorite ? t('scriptList.removeFavorite') : t('scriptList.addFavorite')}
-                  className={`text-sm ${s.is_favorite ? 'text-warning' : 'text-text-tertiary hover:text-warning'}`}
-                >
-                  {s.is_favorite ? '★' : '☆'}
-                </button>
+      {groupedView ? (
+        <div className="flex flex-col gap-2">
+          {categoryGroups.map(([category, items]) => (
+            <details key={category} className="rounded-lg border border-border bg-panel" open={categoryGroups.length <= 1}>
+              <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-text-primary hover:text-blue-light">
+                #{category} <span className="font-normal text-text-tertiary">({items.length})</span>
+              </summary>
+              <div className="grid gap-3 border-t border-border p-4 sm:grid-cols-2">
+                {items.map((s) => renderCard(s))}
               </div>
-            </div>
-            <p className="mb-2 text-sm text-text-secondary">
-              {s.short_description || <em className="text-text-tertiary">{t('scriptList.noDescription')}</em>}
-            </p>
-            <div className="flex flex-wrap gap-1.5 text-xs text-text-tertiary">
-              {s.host && (
-                <span className="rounded bg-fjord px-1.5 py-0.5 text-blue-light">{s.host}</span>
-              )}
-              {s.works_everywhere ? (
-                <span
-                  title={t('scriptList.everywhereBadgeTitle')}
-                  className="rounded bg-fjord px-1.5 py-0.5 text-success"
-                >
-                  {t('scriptList.everywhereBadge')}
-                </span>
-              ) : null}
-              {s.run_mode && <span className="rounded bg-fjord px-1.5 py-0.5">{s.run_mode}</span>}
-              {s.tags
-                .split(',')
-                .map((t) => t.trim())
-                .filter(Boolean)
-                .map((t) => (
-                  <span
-                    key={t}
-                    role="button"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      toggleTag(t)
-                    }}
-                    className="rounded bg-fjord px-1.5 py-0.5 hover:text-blue-light"
-                  >
-                    #{t}
-                  </span>
-                ))}
-            </div>
-          </CardWrapper>
-          )
-        })}
-      </div>
+            </details>
+          ))}
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">{scripts.slice(0, visibleCount).map((s) => renderCard(s))}</div>
 
-      {visibleCount < scripts.length && (
-        <button
-          type="button"
-          onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}
-          className="mt-4 w-full rounded border border-border-strong py-2 text-sm text-text-secondary hover:border-blue hover:text-text-primary"
-        >
-          {t('scriptList.showMore', { count: Math.min(PAGE_SIZE, scripts.length - visibleCount) })}
-        </button>
+          {visibleCount < scripts.length && (
+            <button
+              type="button"
+              onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}
+              className="mt-4 w-full rounded border border-border-strong py-2 text-sm text-text-secondary hover:border-blue hover:text-text-primary"
+            >
+              {t('scriptList.showMore', { count: Math.min(PAGE_SIZE, scripts.length - visibleCount) })}
+            </button>
+          )}
+        </>
       )}
     </div>
   )

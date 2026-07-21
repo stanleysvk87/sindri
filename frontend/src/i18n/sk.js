@@ -49,6 +49,8 @@ export const sk = {
     clearFilter: 'zrušiť filter ×',
     noScriptsFound: 'Žiadne skripty nenájdené.',
     showingCount: '{{shown}} z {{total}}',
+    showingGroupedCount: '{{total}} v {{groups}} kategóriách',
+    uncategorized: 'nezaradené',
     noDescription: 'bez popisu',
     secretBadge: 'secret?',
     secretBadgeTitle: 'Obsah možno obsahuje heslo/token',
