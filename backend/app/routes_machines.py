@@ -25,6 +25,11 @@ def get_available_keys():
 def add_machine(payload: MachineCreate):
     if payload.auth_type == "key" and not payload.ssh_key_path:
         raise HTTPException(status_code=400, detail="ssh_key_path je povinný pre auth_type=key")
+    if payload.auth_type == "key" and payload.ssh_key_path not in list_available_keys():
+        # The dropdown only ever offers what's actually mounted from the
+        # host (see the docstring above) -- reject anything else server
+        # side too, don't just trust the client to have used the dropdown.
+        raise HTTPException(status_code=400, detail="ssh_key_path nie je medzi kľúčmi namontovanými na hostiteľovi")
     return create_machine(
         payload.name,
         payload.host,

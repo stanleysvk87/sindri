@@ -9,14 +9,23 @@ lasting effect).
 
 ## Security properties (see `backend/app/remote_exec.py`)
 
-- **Always against a pre-registered machine** — never a path/IP typed in
-  ad hoc at run time. Registry in `backend/app/machines.py` (Settings →
-  Managed machines).
+- **Normally against a pre-registered machine.** Registry in
+  `backend/app/machines.py` (Settings → Managed machines). The single-
+  script `/remote-exec` endpoint also accepts an **ad-hoc connection**
+  (host/user/port/key typed in for that one run, optionally saved as a
+  new registered machine afterwards) — this is a deliberate, later
+  addition, not an oversight, but it does mean "only ever a pre-
+  registered machine" is not literally true for that one endpoint.
+  `/remote-exec-all` has no ad-hoc mode — it always runs against every
+  already-registered machine, nothing typed in ad hoc.
 - **SSH key is always just mounted from the host** — the app never
   generates or stores key material itself. `backend/app/ssh_keys.py`
   only lists which keys exist at the mounted path (`GET
-  /api/machines/available-keys`); the "add machine" form picks from
-  that list.
+  /api/machines/available-keys`); the "add machine" form (and the "save
+  this ad-hoc connection" flow) both validate server-side that
+  `ssh_key_path` is one of those mounted keys, not an arbitrary
+  in-container path — the dropdown was previously the only thing
+  enforcing that, now the API does too.
 - **The sudo password (if used) is entered fresh on EVERY run**, never
   stored — not in the DB, not in the audit log. It's sent over SSH via
   `sudo -S` on stdin (not as a command argument), so it never shows up

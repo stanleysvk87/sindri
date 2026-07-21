@@ -12,3 +12,4 @@ frontend/dist/
 # never belongs in git, only the README explaining the folder does.
 import-sources/*
 !import-sources/README.md
+docker-compose.override.yml

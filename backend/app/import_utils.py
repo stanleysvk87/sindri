@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -10,6 +11,33 @@ SKIP_DIR_NAMES = {
     "dist", "build", ".pytest_cache",
 }
 MAX_FILE_BYTES = 2 * 1024 * 1024
+
+# Local scan/import is only ever supposed to reach paths the operator
+# deliberately bind-mounted for this purpose (docker-compose.yml's
+# import-sources volume, see import-sources/README.md -- extra folders
+# are documented as extra mounts nested under the same /import-sources
+# prefix). Without this check, an authenticated user could point
+# scan_path/confirm_import at any path the container filesystem can see
+# (e.g. /app, or the read-only ~/.ssh / ~/.claude mounts used by other
+# features) -- the .sh/.py extension filter narrows what comes back, but
+# containment should be enforced up front, not left to that filter alone.
+IMPORT_ALLOWED_ROOTS = tuple(
+    Path(p).resolve()
+    for p in os.environ.get("SINDRI_IMPORT_ALLOWED_ROOTS", "/import-sources").split(":")
+    if p
+)
+
+
+class ImportPathNotAllowedError(Exception):
+    pass
+
+
+def _ensure_allowed_root(root: Path) -> None:
+    if not any(root == allowed or allowed in root.parents for allowed in IMPORT_ALLOWED_ROOTS):
+        raise ImportPathNotAllowedError(
+            f"{root} is outside the allowed import root(s) "
+            f"({', '.join(str(r) for r in IMPORT_ALLOWED_ROOTS)})"
+        )
 
 
 def _iter_script_files(root: Path):
@@ -55,6 +83,7 @@ def scan_path(root_path: str) -> dict:
     importing anything. Lets the UI show a checklist so the user picks
     which ones actually get added to the catalog."""
     root = Path(root_path).expanduser().resolve()
+    _ensure_allowed_root(root)
     if not root.exists() or not root.is_dir():
         raise FileNotFoundError(f"{root} does not exist or is not a directory")
 
@@ -133,6 +162,7 @@ def import_path(root_path: str, host: str = "") -> dict:
     only -- user-edited fields (short_description, long_description,
     notes, tags, host, run_mode) are preserved, never overwritten."""
     root = Path(root_path).expanduser().resolve()
+    _ensure_allowed_root(root)
     if not root.exists() or not root.is_dir():
         raise FileNotFoundError(f"{root} does not exist or is not a directory")
 
@@ -155,6 +185,11 @@ def confirm_import(paths: list[str], host: str = "") -> dict:
     with get_conn() as conn:
         for raw_path in paths:
             file_path = Path(raw_path).expanduser().resolve()
+            try:
+                _ensure_allowed_root(file_path.parent)
+            except ImportPathNotAllowedError:
+                counts["skipped"] += 1
+                continue
             if not file_path.is_file():
                 counts["skipped"] += 1
                 continue

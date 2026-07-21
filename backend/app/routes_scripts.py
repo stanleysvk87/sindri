@@ -8,7 +8,7 @@ from fastapi.responses import Response
 from app.audit import for_script, log_action
 from app.auth import require_auth
 from app.db import get_conn
-from app.import_utils import confirm_import, import_path, scan_path
+from app.import_utils import ImportPathNotAllowedError, confirm_import, import_path, scan_path
 from app.machines import create_machine, get_machine, list_machines
 from app.models import (
     BulkTagRequest,
@@ -29,6 +29,7 @@ from app.remote_exec import RemoteExecError, remote_exec_enabled, run_remote
 from app.remote_import import pull_file, push_file, remote_file_exists, scan_remote_path
 from app.schedule_scan import find_mismatches, scan_schedule
 from app.secret_scan import looks_like_it_has_a_secret
+from app.ssh_keys import list_available_keys
 from app.versions import get_version, list_for_script, snapshot
 
 router = APIRouter(prefix="/api/scripts", tags=["scripts"], dependencies=[Depends(require_auth)])
@@ -300,13 +301,16 @@ def remote_exec(script_id: int, payload: RemoteExecRequest):
         raise HTTPException(status_code=503, detail=str(exc))
 
     if payload.connection is not None and payload.connection.save_as_name:
+        c = payload.connection
+        if c.auth_type == "key" and c.ssh_key_path not in list_available_keys():
+            raise HTTPException(status_code=400, detail="ssh_key_path nie je medzi kľúčmi namontovanými na hostiteľovi")
         saved = create_machine(
-            payload.connection.save_as_name,
-            payload.connection.host,
-            payload.connection.port,
-            payload.connection.ssh_user,
-            payload.connection.auth_type,
-            payload.connection.ssh_key_path,
+            c.save_as_name,
+            c.host,
+            c.port,
+            c.ssh_user,
+            c.auth_type,
+            c.ssh_key_path,
         )
         saved_machine_id = saved["id"]
         result["saved_machine_id"] = saved_machine_id
@@ -588,6 +592,8 @@ def import_from_path(payload: PathImportRequest):
     files to add instead of importing an entire directory."""
     try:
         result = import_path(payload.path, host=payload.host)
+    except ImportPathNotAllowedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return result
@@ -599,6 +605,8 @@ def scan_directory(payload: ScanPathRequest):
     can show a checklist before anything is actually added."""
     try:
         result = scan_path(payload.path)
+    except ImportPathNotAllowedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return result
