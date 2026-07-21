@@ -4,9 +4,11 @@ Self-hosted katalóg skriptov — prehľadávanie (aj podľa toho, čo skript
 robí, nie len podľa mena), import existujúcich skriptov (výberom z
 prehľadaného priečinka, alebo vložením obsahu), voliteľné AI generovanie
 a review (cez existujúce `claude`/`codex` CLI prihlásenie, alebo
-Anthropic API kľúč), a ~29 vstavaných univerzálnych Linux skriptov ako
-štartovací balík. Rozhranie je dvojjazyčné (slovenčina/angličtina,
-prepínač v hlavičke).
+Anthropic API kľúč), a **~119 vstavaných skriptov/referencií ako
+štartovací balík** (~29 univerzálnych Linux admin skriptov + ~90-položkový
+cheatsheet naprieč Docker/systemd/git/sieťovou diagnostikou/Windows-
+PowerShell/macOS/Python/databázami a ďalším). Rozhranie je dvojjazyčné
+(slovenčina/angličtina, prepínač v hlavičke).
 
 Meno po Sindrim, trpasličom kováčovi zo severskej mytológie, ktorý
 vykoval Mjölnir a ďalšie legendárne artefakty pre bohov.
@@ -27,16 +29,20 @@ docker compose up -d --build
 ```
 
 Appka beží na `http://localhost:8420` (port nastaviteľný cez
-`SINDRI_PORT` v `.env`).
+`SINDRI_PORT` v `.env`). Voliteľné funkcie (AI, sandbox, vzdialené
+spustenie) majú vlastné zapínacie kroky — pozri `docs/AI_FEATURES.md`,
+`docs/SANDBOX.md`, `docs/REMOTE_EXEC.md`.
 
 ## Čo appka vie
 
 - **Katalóg**: hľadanie/filter podľa stroja a klikacích tag chipov
-  (multi-select), fulltext hľadanie aj v obsahu skriptu, nielen v
-  mene/popise.
+  (multi-select), fulltext hľadanie aj v obsahu skriptu (nielen v
+  mene/popise), zoskupovanie referenčných zbierok (cheatsheet/pentest)
+  do skladacích kategórií, zvýrazňovanie syntaxe pri zobrazení obsahu.
 - **Import**: prehľadaj priečinok (lokálny mount) a vyber, ktoré skripty
   pridať (s varovaním, ak niektorý vyzerá, že obsahuje heslo/token),
-  alebo vlož obsah ručne.
+  alebo vlož obsah ručne — obe cesty aj cez SSH na registrovaný vzdialený
+  stroj.
 - **AI generovanie/review** (voliteľné, appka funguje aj bez toho): pozri
   `docs/AI_FEATURES.md`.
 - **Sandbox testovanie** (voliteľné, vypnuté defaultne): izolovaný
@@ -45,6 +51,8 @@ Appka beží na `http://localhost:8420` (port nastaviteľný cez
   spustí skript na zaregistrovanom stroji (jednotlivo alebo naraz na
   všetkých), sudo heslo (ak treba) sa zadáva nanovo pri každom behu,
   nikdy sa neukladá — pozri `docs/REMOTE_EXEC.md`.
+- **Push naspäť**: prepíše zdrojový súbor na registrovanom stroji
+  aktuálnym obsahom z katalógu (opak importu).
 - **História obsahu a rollback**: každá zmena obsahu (ručná úprava,
   obnovenie zo zdroja, AI prepis) sa pred prepísaním uloží ako verzia;
   diff proti aktuálnemu obsahu a obnovenie staršej verzie jedným
@@ -59,13 +67,14 @@ Appka beží na `http://localhost:8420` (port nastaviteľný cez
   spustenia" v katalógu so skutočným `crontab`/systemd timer
   nastavením na registrovaných strojoch — odhalí rozpor medzi tým, čo
   katalóg tvrdí, a čo naozaj beží.
-- **Správa tagov**: premenovanie/zmazanie tagu naprieč celým katalógom
-  na jednom mieste, nielen po jednom skripte.
+- **Správa tagov**: vlastná stránka na premenovanie/zmazanie tagu
+  naprieč celým katalógom na jednom mieste, nielen po jednom skripte.
 - **Export katalógu**: celý obsah katalógu ako stiahnuteľný JSON.
 - **Prihlásenie s brzdou proti hrubej sile**: 5 zlyhaných pokusov / 15
   min zamkne danú IP adresu.
-- **Nastavenia**: register spravovaných strojov, audit log (kto/kedy/aký
-  skript/aký stroj, nikdy heslo ani plný výstup), prehľad katalógu.
+- **Nastavenia**: register spravovaných strojov, stránkovaný audit log
+  (kto/kedy/aký skript/aký stroj, nikdy heslo ani plný výstup), prehľad
+  katalógu.
 
 ## Štruktúra
 

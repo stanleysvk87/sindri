@@ -22,6 +22,17 @@ services:
       # like it does on the host, version bumps included.
       HOME: ${HOME}
       PATH: ${HOME}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    # Only needed if SINDRI_SANDBOX_ENABLED=true: the backend runs as a
+    # non-root user (UID 1000, see backend/Dockerfile), so it needs
+    # supplementary membership in whichever GID owns /var/run/docker.sock
+    # on THIS host -- find it with `getent group docker | cut -d: -f3`
+    # and set SINDRI_DOCKER_GID in .env. Without this, uncommenting the
+    # docker.sock mount below is not enough -- every sandbox run fails
+    # with "Permission denied" (docker.sock is root:docker 660, and the
+    # container user isn't in that group by default). Harmless no-op
+    # when sandbox is disabled.
+    group_add:
+      - "${SINDRI_DOCKER_GID:-999}"
     volumes:
       - sindri-data:/data
       # Mount whatever script folders you want to be able to scan/import

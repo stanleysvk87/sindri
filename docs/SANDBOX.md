@@ -5,6 +5,23 @@ Docker kontajneri a vráti stdout/stderr/exit code. Vypnuté defaultne
 (`SINDRI_SANDBOX_ENABLED=false`) — appka bez toho funguje plnohodnotne,
 je to voliteľná funkcia.
 
+## Zapnutie — 3 kroky, nielen 1
+
+1. `SINDRI_SANDBOX_ENABLED=true` v `.env`.
+2. Odkomentuj `/var/run/docker.sock:/var/run/docker.sock` v
+   `docker-compose.yml`.
+3. **Nastav `SINDRI_DOCKER_GID` v `.env`** na GID skupiny `docker` na
+   TOMTO hostiteľovi (`getent group docker | cut -d: -f3` — na rôznych
+   strojoch iné číslo, napr. 995 aj 136 sme videli na dvoch reálnych
+   nasadeniach). Bez tohto kroku appka aj s odkomentovaným mountom
+   zlyhá na `PermissionError(13, 'Permission denied')` pri prístupe na
+   `docker.sock` — backend beží ako non-root UID 1000 (`backend/Dockerfile`),
+   ktorý bez explicitného `group_add` nie je členom skupiny `docker` na
+   hostiteľovi, aj keď socket vidí cez bind-mount.
+
+Over cez `GET /api/sandbox/status` — `{"available": true}` znamená
+všetky 3 kroky sedia.
+
 **Toto NIE JE to isté ako "Spustiť na diaľku"** (ten placeholder ostáva
 natrvalo disabled, pozri `docs/REMOTE_EXEC.md`). Kľúčový rozdiel:
 sandbox beh je jednorazový a zahoditeľný — žiadny prístup k reálnym
