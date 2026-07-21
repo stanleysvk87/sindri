@@ -47,6 +47,8 @@ class ScriptPasteImport(BaseModel):
     host: str = ""
     tags: str = ""
     short_description: str = ""
+    long_description: str = ""
+    notes: str = ""
     run_mode: str = ""
     source_ref: str = ""
     works_everywhere: bool = False

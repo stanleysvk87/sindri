@@ -557,13 +557,15 @@ def import_paste(payload: ScriptPasteImport):
                 (name, host, tags, short_description, long_description, notes,
                  content, run_mode, source_type, source_ref, has_possible_secret,
                  works_everywhere, created_at, updated_at)
-            VALUES (?, ?, ?, ?, '', '', ?, ?, 'pasted', ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pasted', ?, ?, ?, ?, ?)
             """,
             (
                 payload.name,
                 payload.host,
                 payload.tags,
                 payload.short_description,
+                payload.long_description,
+                payload.notes,
                 payload.content,
                 payload.run_mode,
                 payload.source_ref,
