@@ -71,7 +71,8 @@ services:
   frontend:
     build: ./frontend
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "${SINDRI_PORT:-8420}:80"
     restart: unless-stopped
