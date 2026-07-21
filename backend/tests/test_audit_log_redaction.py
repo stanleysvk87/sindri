@@ -7,8 +7,6 @@ log_action()."""
 
 import subprocess
 
-from app.db import get_conn
-
 
 class FakeCompletedProcess:
     def __init__(self, returncode=0, stdout="", stderr=""):
@@ -44,6 +42,12 @@ def test_remote_exec_audit_log_never_contains_sudo_password(auth_client, app_env
         },
     )
     assert resp.status_code == 200, resp.text
+
+    # imported here, not at module level -- app.db is re-imported fresh
+    # per test by the `client` fixture (see conftest.py), so a
+    # module-level import here would bind to a stale get_conn from
+    # whichever test happened to trigger the first import.
+    from app.db import get_conn
 
     with get_conn() as conn:
         rows = conn.execute("SELECT detail FROM audit_log").fetchall()
