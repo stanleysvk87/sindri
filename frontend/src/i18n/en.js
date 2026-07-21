@@ -1,4 +1,8 @@
 export const en = {
+  tagsPage: {
+    searchPlaceholder: 'Search tags...',
+    noMatch: 'No tag matches your search.',
+  },
   common: {
     loading: 'Loading...',
     save: 'Save',
@@ -16,6 +20,7 @@ export const en = {
   },
   layout: {
     catalog: 'Catalog',
+    tags: 'Tags',
     settings: 'Settings',
     quickSearchHint: 'Open quick search (Ctrl+K)',
     addScript: '+ Add script',
@@ -166,7 +171,10 @@ export const en = {
       title: 'Tag management',
       none: 'No tags yet.',
       delete: 'delete',
-      confirmDelete: 'Remove tag #{{tag}} from every script that has it?',
+      confirmDelete: 'Remove tag #{{tag}} from every script that has it ({{count}})?',
+      confirmRename: 'Rename #{{tag}} to #{{next}}? This changes it on every script that has this tag ({{count}}).',
+      renameHint: 'Renaming affects every script with this tag, not just this one entry.',
+      renamed: 'Renamed ✓',
     },
     scheduleCheck: {
       title: 'Scheduling check',
@@ -203,6 +211,7 @@ export const en = {
       totalScripts: 'scripts total',
       possibleSecrets: 'with a possible password/token',
       export: 'Export catalog (JSON)',
+      manageTags: 'Manage tags →',
     },
     account: {
       title: 'Account',

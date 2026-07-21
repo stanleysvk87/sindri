@@ -1,4 +1,8 @@
 export const sk = {
+  tagsPage: {
+    searchPlaceholder: 'Hľadaj tag...',
+    noMatch: 'Žiadny tag nesedí s hľadaním.',
+  },
   common: {
     loading: 'Načítavam...',
     save: 'Uložiť',
@@ -16,6 +20,7 @@ export const sk = {
   },
   layout: {
     catalog: 'Katalóg',
+    tags: 'Tagy',
     settings: 'Nastavenia',
     quickSearchHint: 'Otvor rýchle hľadanie (Ctrl+K)',
     addScript: '+ Pridať skript',
@@ -166,7 +171,10 @@ export const sk = {
       title: 'Správa tagov',
       none: 'Zatiaľ žiadne tagy.',
       delete: 'zmazať',
-      confirmDelete: 'Odstrániť tag #{{tag}} zo všetkých skriptov, ktoré ho majú?',
+      confirmDelete: 'Odstrániť tag #{{tag}} zo všetkých skriptov, ktoré ho majú ({{count}})?',
+      confirmRename: 'Premenovať #{{tag}} na #{{next}}? Zmení sa vo všetkých skriptoch, ktoré tento tag majú ({{count}}).',
+      renameHint: 'Premenovanie sa prejaví vo všetkých skriptoch s týmto tagom, nie len tu.',
+      renamed: 'Premenované ✓',
     },
     scheduleCheck: {
       title: 'Kontrola plánovania',
@@ -203,6 +211,7 @@ export const sk = {
       totalScripts: 'skriptov spolu',
       possibleSecrets: 's možným heslom/tokenom',
       export: 'Exportovať katalóg (JSON)',
+      manageTags: 'Spravovať tagy →',
     },
     account: {
       title: 'Účet',

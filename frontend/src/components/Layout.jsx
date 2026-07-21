@@ -26,6 +26,9 @@ export default function Layout({ children }) {
             <Link to="/" className="text-text-secondary hover:text-text-primary">
               {t('layout.catalog')}
             </Link>
+            <Link to="/tags" className="text-text-secondary hover:text-text-primary">
+              {t('layout.tags')}
+            </Link>
             <Link to="/settings" className="text-text-secondary hover:text-text-primary">
               {t('layout.settings')}
             </Link>

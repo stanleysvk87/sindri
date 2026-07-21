@@ -3,99 +3,6 @@ import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useTranslation } from '../i18n/I18nContext.jsx'
 
-function TagsManagementSection() {
-  const { t } = useTranslation()
-  const [tags, setTags] = useState([])
-  const [renaming, setRenaming] = useState(null)
-  const [renameValue, setRenameValue] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  function reload() {
-    api.tags().then((r) => setTags(r.tags)).catch(() => {})
-  }
-
-  useEffect(reload, [])
-
-  async function handleRename(tag) {
-    const next = renameValue.trim()
-    if (!next || next === tag) {
-      setRenaming(null)
-      return
-    }
-    setBusy(true)
-    try {
-      await api.renameTag(tag, next)
-      setRenaming(null)
-      reload()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleDelete(tag) {
-    if (!confirm(t('settings.tags.confirmDelete', { tag }))) return
-    setBusy(true)
-    try {
-      await api.deleteTag(tag)
-      reload()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div>
-      <h2 className="mb-3 text-lg font-semibold text-text-primary">{t('settings.tags.title')}</h2>
-      <div className="divide-y divide-border rounded-lg border border-border bg-panel">
-        {tags.length === 0 && <p className="p-4 text-sm text-text-tertiary">{t('settings.tags.none')}</p>}
-        {tags.map((tag) => (
-          <div key={tag} className="flex items-center justify-between gap-2 p-3 text-sm">
-            {renaming === tag ? (
-              <input
-                autoFocus
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleRename(tag)}
-                className="rounded border border-border-strong bg-ink px-2 py-1 text-sm text-text-primary outline-none focus:border-blue"
-              />
-            ) : (
-              <span className="text-text-primary">#{tag}</span>
-            )}
-            <div className="flex gap-3 text-xs">
-              {renaming === tag ? (
-                <>
-                  <button type="button" disabled={busy} onClick={() => handleRename(tag)} className="text-blue-light hover:underline">
-                    {t('common.save')}
-                  </button>
-                  <button type="button" onClick={() => setRenaming(null)} className="text-text-tertiary hover:underline">
-                    {t('common.cancel')}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRenaming(tag)
-                      setRenameValue(tag)
-                    }}
-                    className="text-blue-light hover:underline"
-                  >
-                    {t('scriptDetail.editField')}
-                  </button>
-                  <button type="button" disabled={busy} onClick={() => handleDelete(tag)} className="text-warning hover:underline">
-                    {t('settings.tags.delete')}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 function ScheduleCheckSection() {
   const { t } = useTranslation()
   const [result, setResult] = useState(null)
@@ -543,13 +450,18 @@ function StatsSection() {
     <div>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-text-primary">{t('settings.stats.title')}</h2>
-        <a
-          href="/api/scripts/meta/export"
-          download
-          className="text-xs text-blue-light hover:underline"
-        >
-          {t('settings.stats.export')}
-        </a>
+        <div className="flex items-center gap-3">
+          <Link to="/tags" className="text-xs text-blue-light hover:underline">
+            {t('settings.stats.manageTags')}
+          </Link>
+          <a
+            href="/api/scripts/meta/export"
+            download
+            className="text-xs text-blue-light hover:underline"
+          >
+            {t('settings.stats.export')}
+          </a>
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-lg border border-border bg-panel p-4">
@@ -680,7 +592,6 @@ export default function Settings() {
   return (
     <div className="grid gap-8">
       <StatsSection />
-      <TagsManagementSection />
       <ScheduleCheckSection />
       <OrphanedSection />
       <HostStatusSection />
