@@ -126,16 +126,30 @@ export default function ScriptList() {
       ).sort(([a], [b]) => a.localeCompare(b))
     : []
 
+  // Tag cloud obmedzený na tagy, ktoré sa reálne vyskytujú pri aktuálne
+  // vybranom stroji -- inak sa dá kliknúť na tag ako #wifi vo výbere
+  // host=cheatsheet a dostať prázdny výsledok. allScriptsForRecent má vždy
+  // celý katalóg (backend list_scripts nič nestránkuje), takže sa dá počítať
+  // bez ďalšieho API volania. Bez vybraného stroja sa ukazuje plný zoznam.
+  const visibleTags = host
+    ? [...new Set(
+        allScriptsForRecent
+          .filter((s) => s.host === host)
+          .flatMap((s) => (s.tags || '').split(',').map((x) => x.trim()).filter(Boolean))
+      )].sort()
+    : allTags
+
   function renderCard(s) {
     const CardWrapper = selectMode ? 'div' : Link
     const wrapperProps = selectMode
       ? { onClick: () => toggleSelected(s.id), role: 'button' }
       : { to: `/scripts/${s.id}` }
+    const isReference = CATALOG_HOSTS.includes(s.host)
     return (
       <CardWrapper
         key={s.id}
         {...wrapperProps}
-        className={`min-w-0 rounded-lg border p-4 transition ${
+        className={`min-w-0 rounded-lg border p-4 transition ${isReference ? 'border-l-2 border-l-gold' : ''} ${
           selectMode && selectedIds.has(s.id)
             ? 'cursor-pointer border-blue bg-fjord'
             : selectMode
@@ -154,8 +168,8 @@ export default function ScriptList() {
                 className="h-3.5 w-3.5"
               />
             )}
-            <span title={s.name.endsWith('.py') ? t('scriptList.typePython') : s.name.endsWith('.sh') ? t('scriptList.typeShell') : t('scriptList.typeScript')}>
-              {scriptIcon(s.name)}
+            <span title={isReference ? t('scriptList.typeReference') : s.name.endsWith('.py') ? t('scriptList.typePython') : s.name.endsWith('.sh') ? t('scriptList.typeShell') : t('scriptList.typeScript')}>
+              {isReference ? '📖' : scriptIcon(s.name)}
             </span>
             <span className="min-w-0 break-words">{s.name}</span>
           </span>
@@ -228,7 +242,9 @@ export default function ScriptList() {
           className="rounded border border-border-strong bg-panel px-3 py-2 text-sm text-text-primary outline-none focus:border-blue"
         >
           <option value="">{t('scriptList.allMachines')}</option>
-          {hosts.map((h) => (
+          {[...hosts]
+            .sort((a, b) => (a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0))
+            .map((h) => (
             <option key={h} value={h}>
               {h}
             </option>
@@ -333,9 +349,9 @@ export default function ScriptList() {
         </div>
       )}
 
-      {allTags.length > 0 && (
+      {visibleTags.length > 0 && (
         <div className="mb-6 flex flex-wrap gap-1.5">
-          {allTags.map((t) => {
+          {visibleTags.map((t) => {
             const active = selectedTags.has(t)
             return (
               <button

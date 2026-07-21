@@ -61,6 +61,7 @@ export const sk = {
     typePython: 'Python',
     typeShell: 'Shell',
     typeScript: 'Skript',
+    typeReference: 'Referenčný záznam (príkaz + vysvetlenie, nie spustiteľný skript)',
     showMore: 'Zobraziť ďalších {{count}}',
   },
   addScript: {

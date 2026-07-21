@@ -516,12 +516,18 @@ export default function ScriptDetail() {
   if (error) return <p className="text-warning">{error}</p>
   if (!script) return <p className="text-text-tertiary">{t('scriptDetail.loading')}</p>
 
+  // "cheatsheet"/"pentest" sú referenčné katalógy (príkaz + vysvetlenie,
+  // nie automatizačný skript pre konkrétny stroj) -- SSH-copy/sandbox/
+  // remote-exec tu nedáva zmysel a pri útočných príkazoch (napr. hydra,
+  // Responder) je to zbytočné riziko na omylné kliknutie.
+  const isReferenceEntry = ['cheatsheet', 'pentest'].includes(script.host)
+
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-text-primary">
-            <span>{script.name.endsWith('.py') ? '🐍' : script.name.endsWith('.sh') ? '🐚' : '📄'}</span>
+            <span>{isReferenceEntry ? '📖' : script.name.endsWith('.py') ? '🐍' : script.name.endsWith('.sh') ? '🐚' : '📄'}</span>
             <span className="min-w-0 break-words">{script.name}</span>
             <button
               type="button"
@@ -689,7 +695,7 @@ export default function ScriptDetail() {
           >
             {t('scriptDetail.versions')}
           </button>
-          {machines.length > 0 && (
+          {!isReferenceEntry && machines.length > 0 && (
             <button
               type="button"
               onClick={handleToggleSshCopy}
@@ -709,7 +715,7 @@ export default function ScriptDetail() {
               {reviewing ? t('scriptDetail.aiChecking') : t('scriptDetail.checkViaAi')}
             </button>
           )}
-          {sandboxAvailable && (
+          {!isReferenceEntry && sandboxAvailable && (
             <button
               type="button"
               onClick={handleSandboxRun}
@@ -720,7 +726,7 @@ export default function ScriptDetail() {
               {sandboxRunning ? t('scriptDetail.sandboxRunning') : t('scriptDetail.sandboxTest')}
             </button>
           )}
-          {remoteExecEnabled && (
+          {!isReferenceEntry && remoteExecEnabled && (
             <button
               type="button"
               onClick={() => {
@@ -732,7 +738,7 @@ export default function ScriptDetail() {
               {t('scriptDetail.remoteRun')}
             </button>
           )}
-          {!remoteExecEnabled && (
+          {!isReferenceEntry && !remoteExecEnabled && (
             <button
               type="button"
               disabled

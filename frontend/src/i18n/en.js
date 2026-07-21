@@ -61,6 +61,7 @@ export const en = {
     typePython: 'Python',
     typeShell: 'Shell',
     typeScript: 'Script',
+    typeReference: 'Reference entry (command + explanation, not an executable script)',
     showMore: 'Show {{count}} more',
   },
   addScript: {
