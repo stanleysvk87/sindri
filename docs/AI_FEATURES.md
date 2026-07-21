@@ -1,64 +1,68 @@
-# AI generovanie a review — ako to funguje
+# AI generation and review — how it works
 
-Dve funkcie: **Vygenerovať cez AI** (popíšeš čo skript má robiť, dostaneš
-draft do formulára — nič sa neuloží automaticky, vždy si to skontroluješ
-predtým, než klikneš "Pridať do katalógu") a **Skontrolovať cez AI**
-(pošle obsah existujúceho skriptu na review — heslá/tokeny natvrdo v
-kóde, nebezpečné príkazy, chýbajúce quotovanie).
+Two features: **Generate via AI** (describe what the script should do,
+get a draft into the form — nothing is saved automatically, you always
+review it before clicking "Add to catalog") and **Review via AI**
+(sends an existing script's content off for review — hardcoded
+passwords/tokens, dangerous commands, missing quoting).
 
-Obe sú **voliteľné** — appka funguje plnohodnotne aj bez nich (katalóg,
-scan/paste import, šablóny). `GET /api/ai/status` vracia
-`{"available": false}`, ak nie je nič nakonfigurované, a UI potom tie
-tlačidlá jednoducho neukáže.
+Both are **optional** — the app is fully functional without them
+(catalog, scan/paste import, templates). `GET /api/ai/status` returns
+`{"available": false}` if nothing is configured, and the UI simply
+hides those buttons.
 
-## Architektúra — prevzaté z Muninn `ai_engine`
+## Architecture — carried over from Muninn's `ai_engine`
 
-Rovnaký vzor ako v `~/muninn/backend/app/ai_engine/`: `AIProvider`
-protokol s jednou metódou (`complete(prompt) -> str`), tri implementácie
-v poradí priority (`SINDRI_AI_PROVIDER_MODE=auto`):
+Same pattern as `~/muninn/backend/app/ai_engine/`: an `AIProvider`
+protocol with a single method (`complete(prompt) -> str`), three
+implementations tried in priority order (`SINDRI_AI_PROVIDER_MODE=auto`):
 
-1. **`claude` CLI** (`shutil.which("claude")`) — spúšťa `claude -p
-   <prompt> --output-format json` ako subprocess (`shell=False`, pevný
-   argv, timeout 120s). Používa existujúce prihlásenie na hostiteľovi,
-   žiadny extra náklad nad rámec toho, čo už platíš za Claude Code/
-   subscription.
+1. **`claude` CLI** (`shutil.which("claude")`) — runs `claude -p
+   <prompt> --output-format json` as a subprocess (`shell=False`, fixed
+   argv, 120s timeout). Uses the existing login on the host, no extra
+   cost beyond what you already pay for Claude Code/subscription.
 2. **`codex` CLI** (`shutil.which("codex")`) — `codex exec <prompt> -s
-   read-only --skip-git-repo-check --ephemeral -o <tmpfile>`, rovnaká
-   logika.
-3. **Anthropic API** (`SINDRI_ANTHROPIC_API_KEY`) — priamy
-   `anthropic.Anthropic().messages.create(...)` call, fallback pre hosty
-   bez CLI.
+   read-only --skip-git-repo-check --ephemeral -o <tmpfile>`, same
+   logic.
+3. **Anthropic API** (`SINDRI_ANTHROPIC_API_KEY`) — a direct
+   `anthropic.Anthropic().messages.create(...)` call, a fallback for
+   hosts without either CLI.
 
-Detekcia je automatická (`shutil.which`), nič netreba ručne prepínať,
-pokiaľ nechceš vynútiť konkrétny provider cez `SINDRI_AI_PROVIDER_MODE`.
+Detection is automatic (`shutil.which`), nothing to switch manually
+unless you want to force a specific provider via
+`SINDRI_AI_PROVIDER_MODE`.
 
-## Docker — prečo sú CLI mounty v `docker-compose.yml` zakomentované
+## Docker — the CLI mounts in `docker-compose.yml`
 
-CLI providery fungujú len vtedy, keď backend kontajner reálne vidí
-`claude`/`codex` binárku AJ jej prihlásenie (`~/.claude`, `~/.codex`).
-To znamená bind-mount osobných auth súborov z hostiteľa do kontajnera —
-citlivé, a **funguje to len na hostiteľovi, kde je CLI reálne
-nainštalované a prihlásené** (nie na "hocijakom Linuxe", preto je to
-mimo defaultu):
+CLI providers only work when the backend container can actually see the
+`claude`/`codex` binary AND its login state (`~/.claude`, `~/.codex`).
+That means bind-mounting personal auth files from the host into the
+container — sensitive, and **only works on a host where the CLI is
+actually installed and logged in** (not on "any Linux box"), which is
+why these mounts are worth understanding before you deploy elsewhere:
 
-- `~/.claude` a `~/.claude.json` ako `:ro` — claude CLI ich pri `-p`
-  režime len číta.
-- `~/.codex` **bez** `:ro` — codex zapisuje session/app-server stav pri
-  každom volaní, `:ro` mount by zlyhal na "Read-only file system".
-- Samotná binárka (`claude`/`codex`) sa mountuje z hostiteľa, nie
-  inštaluje do image — jednoduchšie ako replikovať inštaláciu vo vnútri
-  kontajnera.
-- Kontajner beží ako non-root (UID 1000) — niektoré CLI auth flow sa
-  správajú inak/odmietajú fungovať pod rootom.
+- `~/.claude` and `~/.claude.json` as `:ro` — the claude CLI only reads
+  these in `-p` mode.
+- `~/.codex` **without** `:ro` — codex writes session/app-server state
+  on every call, a `:ro` mount would fail with "Read-only file system".
+- The binary itself (`claude`/`codex`) is mounted from the host rather
+  than installed into the image — simpler than replicating the install
+  inside the container.
+- The container runs as non-root (UID 1000) — some CLI auth flows
+  behave differently or refuse to run as root.
 
-Na hostiteľoch bez nainštalovaného CLI (typický "cudzí" Linux server)
-appka jednoducho beží ďalej bez AI funkcií, alebo nastav
-`SINDRI_ANTHROPIC_API_KEY` pre API-key fallback bez potreby CLI mountov.
+On hosts without the CLI installed, these mounts point at paths that
+don't exist yet — Docker will bind-mount them as empty directories
+rather than error out, so the app still starts, just without CLI-backed
+AI (set `SINDRI_ANTHROPIC_API_KEY` instead for the API-key fallback with
+no CLI mounts needed). If that empty-directory side effect bothers you,
+comment these five volume lines out entirely; the app works the same
+either way with AI simply reported as unavailable.
 
-## Bezpečnosť promptov
+## Prompt safety
 
-`ai_engine/prompts.py` stavia prompty len z textu, ktorý appka sama
-kontroluje (popis od používateľa pre generovanie, obsah skriptu pre
-review) — žiadne `--add-dir`/nástroje s prístupom na disk mimo toho, čo
-je explicitne v prompte. Model nikdy nedostane prístup k spúšťaniu
-príkazov ani k iným súborom na hostiteľovi cez tento endpoint.
+`ai_engine/prompts.py` builds prompts only from text the app itself
+controls (the user's description for generation, the script's content
+for review) — no `--add-dir` or tools with disk access beyond what's
+explicitly in the prompt. The model never gets the ability to run
+commands or reach other files on the host through this endpoint.

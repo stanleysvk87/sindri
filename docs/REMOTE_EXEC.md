@@ -1,69 +1,65 @@
-# Remote execution — implementované 2026-07-19
+# Remote execution — implemented 2026-07-19
 
-Spustí obsah katalogizovaného skriptu na registrovanom stroji cez SSH.
-Vypnuté defaultne (`SINDRI_REMOTE_EXEC_ENABLED=false`) — appka bez toho
-funguje plnohodnotne, toto je jediná funkcia, ktorá reálne mení stav na
-inom stroji, nie len číta/testuje izolovane (na rozdiel od
-`docs/SANDBOX.md`, ktorý beží v zahoditeľnom kontajneri bez následkov).
+Runs a catalogued script's content on a registered machine over SSH.
+Off by default (`SINDRI_REMOTE_EXEC_ENABLED=false`) — the app is fully
+functional without it. This is the only feature that actually changes
+state on another machine, rather than just reading/testing in isolation
+(unlike `docs/SANDBOX.md`, which runs in a throwaway container with no
+lasting effect).
 
-Pôvodne (viď git história tohto súboru) bol tento zápis len zámer s
-vypnutým placeholder tlačidlom — po explicitnej žiadosti usera je teraz
-reálne implementované, s presne tými podmienkami, čo boli vopred
-stanovené (sudo heslo nanovo pri každom spustení, žiadne uloženie).
+## Security properties (see `backend/app/remote_exec.py`)
 
-## Bezpečnostné vlastnosti (over v `backend/app/remote_exec.py`)
+- **Always against a pre-registered machine** — never a path/IP typed in
+  ad hoc at run time. Registry in `backend/app/machines.py` (Settings →
+  Managed machines).
+- **SSH key is always just mounted from the host** — the app never
+  generates or stores key material itself. `backend/app/ssh_keys.py`
+  only lists which keys exist at the mounted path (`GET
+  /api/machines/available-keys`); the "add machine" form picks from
+  that list.
+- **The sudo password (if used) is entered fresh on EVERY run**, never
+  stored — not in the DB, not in the audit log. It's sent over SSH via
+  `sudo -S` on stdin (not as a command argument), so it never shows up
+  in a process listing (`ps`) on either side.
+- **Sudo is optional, not forced on every run** — most catalogued
+  scripts (health checks, status dumps) don't need root. Forcing a sudo
+  password on every run would also simply fail on some machines (see
+  below).
+- `SSH BatchMode=yes` — the SSH client never falls into an interactive
+  prompt the app has no way to answer (fails fast instead of hanging).
+- 60s timeout, no indefinite hang.
+- Audit log (`backend/app/audit.py`) records who/when/which script/which
+  machine/exit code — **never the password, never the full output**
+  (output can contain sensitive data from the target machine).
 
-- **Vždy len na vopred zaregistrovaný stroj** — nikdy na cestu/IP
-  zadanú narýchlo pri spustení. Register v `backend/app/machines.py`
-  (Nastavenia → Spravované stroje).
-- **SSH kľúč vždy len namontovaný z hostiteľa** — appka kľúč nikdy
-  negeneruje ani neukladá jeho obsah. `backend/app/ssh_keys.py` len
-  vypíše, ktoré kľúče sú na namontovanej ceste (`GET
-  /api/machines/available-keys`), formulár na pridanie stroja z nich
-  vyberá.
-- **Sudo heslo (ak sa použije) sa zadáva nanovo pri KAŽDOM spustení**,
-  nikdy sa neukladá — ani v DB, ani v audit logu. Posiela sa cez SSH
-  na `sudo -S` cez stdin (nie ako argument príkazu), takže sa nikdy
-  neobjaví vo výpise procesov (`ps`) na hociktorej strane.
-- **Sudo je voliteľné, nie vynútené na každé spustenie** — väčšina
-  katalogizovaných skriptov (health checky, stavové výpisy) nepotrebuje
-  root. Vynucovať sudo heslo vždy by navyše na niektorých strojoch
-  vôbec nefungovalo (pozri nižšie).
-- `SSH BatchMode=yes` — SSH klient nikdy sám nespadne do interaktívneho
-  promptu, na ktorý by appka nemala čo odpovedať (zlyhá rýchlo namiesto
-  zaseknutia).
-- Timeout 60s, žiadny hang navždy.
-- Audit log (`backend/app/audit.py`) zaznamená kto/kedy/aký skript/aký
-  stroj/exit kód — **nikdy heslo, nikdy plný výstup** (výstup môže
-  obsahovať citlivé dáta z cieľového stroja).
+## An important real finding from testing
 
-## Dôležitý reálny nález pri testovaní
+Testing against a machine where sudo is physically bound to a FIDO2
+hardware key (not a password) confirmed: **hardware-bound sudo simply
+cannot be satisfied with a password over SSH** — no change in the app
+changes that, it's an intentional property of that machine's setup.
+Verified directly against it:
 
-Pri testovaní proti victusu (kde je sudo fyzicky viazané na FIDO2
-hardvérový kľúč, nie heslo — pozri `CLAUDE.md`) sa potvrdilo: **heslom
-sa fyzicky-viazané sudo cez SSH vôbec nedá potvrdiť**, žiadna zmena v
-appke to nezmení, je to zámerná vlastnosť takto nastaveného stroja.
-Overené priamo proti victusu:
+- Without sudo (`bash -s` directly) — works reliably, fast (~0.5-1.8s).
+- **A quirk worth knowing**: the very first connection to a new machine
+  (while the container is still establishing `~/.ssh/known_hosts`) can
+  eat the entire timeout once. A second attempt right after was fast and
+  reliable — if the first run against a new machine looks stuck, retry
+  it before assuming something else is wrong.
+- With a wrong/missing password — `sudo -S` fails cleanly with
+  "incorrect password attempts", **the script never runs**, the app
+  reports it correctly, no hang, no crash.
+- Correct password on a machine with classic password-based sudo — try
+  this yourself directly through the app once you have the password
+  handy. Not something that could be verified from the outside (the
+  password is never entered anywhere except your own browser).
 
-- Bez sudo (`bash -s` priamo) — funguje spoľahlivo, rýchlo (~0.5-1.8s).
-- **Zaznamenaná kvirka**: úplne prvé pripojenie na nový stroj (kým sa
-  ešte len zakladá `~/.ssh/known_hosts` v kontajneri) môže raz zabrať
-  celý timeout. Druhý pokus hneď potom bol rýchly a spoľahlivý — ak sa
-  prvé spustenie na nový stroj zdá zaseknuté, skús ho zopakovať predtým,
-  než hľadáš iný problém.
-- So zlým/chýbajúcim heslom — `sudo -S` zlyhá čisto s "incorrect
-  password attempts", **skript sa nikdy nespustí**, appka to korektne
-  nahlási, žiadny hang, žiadny pád.
-- Správne heslo na stroji s klasickým password-based sudo (napr. opi) —
-  toto si over sám priamo cez appku, keď budeš mať heslo poruke. Nie je
-  to niečo, čo by táto session mala/mohla overiť namiesto teba (heslo sa
-  nikam nezadáva okrem tvojho vlastného prehliadača).
+## What the app deliberately does not do
 
-## Čo appka nerobí (zámerne)
-
-- Neuchováva históriu spustení s plným výstupom (len metadata v audit
-  logu).
-- Nespúšťa nič automaticky/naplánovane — vždy explicitný klik + potvrdenie.
-- Nerieši viac používateľov/rolí — appka má zatiaľ jedno zdieľané heslo,
-  takže "kto spustil čo" je momentálne len časová stopa v audit logu, nie
-  identita.
+- Doesn't keep a run history with full output (only metadata in the
+  audit log).
+- Doesn't run anything automatically/on a schedule — always an explicit
+  click + confirmation.
+- Doesn't handle multiple users/roles — the app currently has one shared
+  password, so "who ran what" is just a timestamp trail in the audit
+  log, not an identity.
