@@ -16,6 +16,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest tests/ -v
 
@@ -29,14 +31,56 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
       - run: npm run build
 
-  docker-compose-config:
+  # Separate from the backend/frontend jobs above on purpose: those check
+  # "does our code work", this checks "do our dependencies have known
+  # CVEs" -- different question, different failure meaning, shouldn't be
+  # mixed into the same job/log.
+  security-audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: |
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+      - name: pip-audit (backend dependencies)
+        working-directory: backend
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: npm audit (frontend dependencies)
+        working-directory: frontend
+        run: npm audit --audit-level=high
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare a CI-only .env
+        run: |
           cp .env.example .env
-          docker compose config -q
+          # Belt-and-suspenders: the high-risk features already default to
+          # off in docker-compose.yml, but pin them explicitly here so a
+          # future default change can't silently turn this into a job that
+          # builds/starts the stack with SSH exec, the Docker-socket
+          # sandbox, or a real AI provider reachable.
+          {
+            echo "SINDRI_REMOTE_EXEC_ENABLED=false"
+            echo "SINDRI_SANDBOX_ENABLED=false"
+            echo "SINDRI_AI_PROVIDER_MODE=auto"
+            echo "SINDRI_ANTHROPIC_API_KEY="
+          } >> .env
+      - run: docker compose config -q
+      - run: docker compose build
