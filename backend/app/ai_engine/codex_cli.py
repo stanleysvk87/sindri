@@ -28,8 +28,8 @@ class CodexCLIProvider:
         with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as out_f:
             output_path = Path(out_f.name)
 
-        # POZOR: prompt musi byt HNED za "exec", rovnaky dovod ako v
-        # Muninn ai_engine/codex_cli.py.
+        # NOTE: the prompt must come IMMEDIATELY after "exec", same
+        # reason as in Muninn's ai_engine/codex_cli.py.
         cmd = [
             "codex",
             "exec",
@@ -45,13 +45,18 @@ class CodexCLIProvider:
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         except (subprocess.TimeoutExpired, OSError) as exc:
-            raise ProviderUnavailableError(f"codex exec zlyhalo: {exc}") from exc
+            # codex hanging past the timeout is the COMMON failure here,
+            # and this path used to return without removing the temp file
+            # -- one orphaned /tmp/*.txt per attempt, accumulating inside
+            # the container forever.
+            output_path.unlink(missing_ok=True)
+            raise ProviderUnavailableError(f"codex exec failed: {exc}") from exc
 
         if proc.returncode != 0:
             output_path.unlink(missing_ok=True)
             if _is_unavailable(proc.stderr or ""):
-                raise ProviderUnavailableError(f"codex exec vrátilo chybu: {proc.stderr[:500]}")
-            raise AIEngineError(f"codex exec vrátilo chybu: {proc.stderr[:500]}")
+                raise ProviderUnavailableError(f"codex exec returned an error: {proc.stderr[:500]}")
+            raise AIEngineError(f"codex exec returned an error: {proc.stderr[:500]}")
 
         try:
             result_text = output_path.read_text()
@@ -59,5 +64,5 @@ class CodexCLIProvider:
             output_path.unlink(missing_ok=True)
 
         if not result_text.strip():
-            raise AIEngineError("codex exec vrátilo prázdnu odpoveď")
+            raise AIEngineError("codex exec returned an empty response")
         return result_text

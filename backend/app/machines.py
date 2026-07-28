@@ -21,9 +21,38 @@ def get_machine(machine_id: int) -> dict | None:
     return dict(row) if row else None
 
 
+class MachineNameError(ValueError):
+    pass
+
+
+def validate_machine_name(name: str) -> str:
+    """A machine's NAME is an identifier, not a label: imported scripts
+    record their origin as `ssh://<name><absolute path>` and every
+    push/rescan resolves the target by parsing that string back apart.
+    So the name must be non-empty, unique, and must not contain '/' --
+    a slash makes the parser split in the wrong place and silently
+    resolve to a different machine (or none)."""
+    name = name.strip()
+    if not name:
+        raise MachineNameError("Machine name is required.")
+    if "/" in name:
+        raise MachineNameError(
+            "Machine name must not contain '/' -- it is used as an identifier in "
+            "imported scripts' source references."
+        )
+    with get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM machines WHERE name = ? COLLATE NOCASE", (name,)
+        ).fetchone()
+    if existing:
+        raise MachineNameError(f"A machine named '{name}' is already registered.")
+    return name
+
+
 def create_machine(
     name: str, host: str, port: int, ssh_user: str, auth_type: str, ssh_key_path: str = ""
 ) -> dict:
+    name = validate_machine_name(name)
     now = datetime.now(timezone.utc).isoformat()
     with get_conn() as conn:
         cur = conn.execute(

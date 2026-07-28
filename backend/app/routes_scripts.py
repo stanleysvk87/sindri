@@ -9,7 +9,7 @@ from app.audit import for_script, log_action
 from app.auth import require_auth
 from app.db import get_conn
 from app.import_utils import ImportPathNotAllowedError, confirm_import, import_path, scan_path
-from app.machines import create_machine, get_machine, list_machines
+from app.machines import MachineNameError, create_machine, get_machine, list_machines
 from app.models import (
     BulkTagRequest,
     ConfirmImportRequest,
@@ -19,6 +19,7 @@ from app.models import (
     RemoteExecAllRequest,
     RemoteExecRequest,
     RemoteScanRequest,
+    RescanRequest,
     ScanPathRequest,
     ScriptPasteImport,
     ScriptUpdate,
@@ -41,18 +42,39 @@ def _resolve_remote_source(script) -> tuple[dict, str]:
     for the push/rescan routes that infer the target from where a script
     was originally pulled from."""
     if script["source_type"] != "remote_import" or not script["source_ref"].startswith("ssh://"):
-        raise HTTPException(status_code=400, detail="Tento skript nepochádza z remote importu.")
+        raise HTTPException(status_code=400, detail="This script did not come from a remote import.")
     rest = script["source_ref"][len("ssh://") :]
     machine_name, _, path_part = rest.partition("/")
     path = "/" + path_part
     with get_conn() as conn:
-        machine_row = conn.execute("SELECT * FROM machines WHERE name = ?", (machine_name,)).fetchone()
-    if not machine_row:
+        rows = conn.execute("SELECT * FROM machines WHERE name = ?", (machine_name,)).fetchall()
+    if not rows:
         raise HTTPException(
             status_code=404,
-            detail=f"Pôvodný stroj '{machine_name}' už nie je zaregistrovaný.",
+            detail=f"The original machine '{machine_name}' is no longer registered.",
         )
-    return dict(machine_row), path
+    if len(rows) > 1:
+        # source_ref only records the machine NAME, so an ambiguous name
+        # means we cannot tell which host this script actually came from
+        # -- refuse rather than push content at whichever row SQLite
+        # happened to return first. create_machine rejects new duplicates;
+        # this can only be a pre-existing one (see db._migrate).
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Multiple registered machines are named '{machine_name}' -- rename or remove the "
+                "duplicate in Settings so the source of this script is unambiguous."
+            ),
+        )
+    return dict(rows[0]), path
+
+
+def _like_escape(value: str) -> str:
+    r"""Escape SQL LIKE wildcards in user input. Without this, searching
+    for `xv_probe` treats `_` as "any single character" and `%` matches
+    the entire catalog -- both silently returning far more than the user
+    asked for. Paired with an explicit ESCAPE '\' on every LIKE below."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _row_to_dict(row):
@@ -91,18 +113,19 @@ def list_scripts(
         # OR across selected tag chips -- "docker" + "network" means
         # "either category", the way a category filter is normally read,
         # not "must have both tags at once".
-        tag_clause = " OR ".join(["(',' || tags || ',') LIKE ?"] * len(tag))
+        tag_clause = " OR ".join([r"(',' || tags || ',') LIKE ? ESCAPE '\'"] * len(tag))
         clauses.append(f"({tag_clause})")
-        params.extend(f"%,{t},%" for t in tag)
+        params.extend(f"%,{_like_escape(t)},%" for t in tag)
     if q:
         # Searches what the script IS, not just what it's called -- name
         # alone isn't enough when you remember the behavior but not the
         # filename you gave it eight months ago.
         clauses.append(
-            "(name LIKE ? OR short_description LIKE ? OR long_description LIKE ?"
-            " OR notes LIKE ? OR tags LIKE ? OR content LIKE ?)"
+            r"(name LIKE ? ESCAPE '\' OR short_description LIKE ? ESCAPE '\'"
+            r" OR long_description LIKE ? ESCAPE '\' OR notes LIKE ? ESCAPE '\'"
+            r" OR tags LIKE ? ESCAPE '\' OR content LIKE ? ESCAPE '\')"
         )
-        like = f"%{q}%"
+        like = f"%{_like_escape(q)}%"
         params.extend([like, like, like, like, like, like])
 
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
@@ -206,10 +229,13 @@ def duplicate_script(script_id: int):
             """INSERT INTO scripts
                (name, host, tags, short_description, long_description, notes, content,
                 run_mode, source_type, source_ref, has_possible_secret, is_favorite,
-                created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pasted', '', ?, 0, ?, ?)""",
+                works_everywhere, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pasted', '', ?, 0, ?, ?, ?)""",
             (
-                f"{script['name']} (kópia)",
+                # Suffix is deliberately language-neutral: the backend has
+                # no idea which UI language the caller is using, and this
+                # value is stored, not translated on read.
+                f"{script['name']} (copy)",
                 script["host"],
                 script["tags"],
                 script["short_description"],
@@ -218,6 +244,9 @@ def duplicate_script(script_id: int):
                 script["content"],
                 script["run_mode"],
                 script["has_possible_secret"],
+                # Was omitted entirely, so every copy silently lost the
+                # "works everywhere" badge and dropped out of that filter.
+                script["works_everywhere"],
                 now,
                 now,
             ),
@@ -284,6 +313,17 @@ def remote_exec(script_id: int, payload: RemoteExecRequest):
         # is set, and even then the password itself is never part of
         # what gets saved (create_machine has no password field at all).
         c = payload.connection
+        if c.auth_type == "key" and c.ssh_key_path not in list_available_keys():
+            # Validated BEFORE the script runs, and regardless of whether
+            # the connection is being saved -- this check used to sit
+            # after run_remote and only inside the save_as_name branch,
+            # so an ad-hoc run could point at any readable path in the
+            # container and the "must be a mounted key" guarantee only
+            # applied once the run was already over.
+            raise HTTPException(
+                status_code=400,
+                detail="ssh_key_path is not one of the keys mounted from the host",
+            )
         machine = {
             "host": c.host,
             "port": c.port,
@@ -293,7 +333,7 @@ def remote_exec(script_id: int, payload: RemoteExecRequest):
         }
         machine_label = f"{c.ssh_user}@{c.host}"
     else:
-        raise HTTPException(status_code=400, detail="machine_id alebo connection je povinné")
+        raise HTTPException(status_code=400, detail="machine_id or connection is required")
 
     try:
         result = run_remote(machine, script["content"], payload.sudo_password, payload.ssh_password)
@@ -301,19 +341,24 @@ def remote_exec(script_id: int, payload: RemoteExecRequest):
         raise HTTPException(status_code=503, detail=str(exc))
 
     if payload.connection is not None and payload.connection.save_as_name:
+        # The key allowlist was already enforced above, before the run.
         c = payload.connection
-        if c.auth_type == "key" and c.ssh_key_path not in list_available_keys():
-            raise HTTPException(status_code=400, detail="ssh_key_path nie je medzi kľúčmi namontovanými na hostiteľovi")
-        saved = create_machine(
-            c.save_as_name,
-            c.host,
-            c.port,
-            c.ssh_user,
-            c.auth_type,
-            c.ssh_key_path,
-        )
-        saved_machine_id = saved["id"]
-        result["saved_machine_id"] = saved_machine_id
+        try:
+            saved = create_machine(
+                c.save_as_name,
+                c.host,
+                c.port,
+                c.ssh_user,
+                c.auth_type,
+                c.ssh_key_path,
+            )
+        except MachineNameError as exc:
+            # The script already ran -- report the save failure without
+            # throwing away the run's output.
+            result["save_error"] = str(exc)
+        else:
+            saved_machine_id = saved["id"]
+            result["saved_machine_id"] = saved_machine_id
 
     exit_display = "timeout" if result["timed_out"] else result["exit_code"]
     log_action(
@@ -340,7 +385,7 @@ def remote_exec_all(script_id: int, payload: RemoteExecAllRequest):
 
     machines = list_machines()
     if not machines:
-        raise HTTPException(status_code=400, detail="Žiadny spravovaný stroj nie je zaregistrovaný.")
+        raise HTTPException(status_code=400, detail="No managed machine is registered.")
 
     results = []
     for machine in machines:
@@ -383,7 +428,7 @@ def push_script(script_id: int, payload: PushBackRequest):
             if exc.status_code == 400:
                 raise HTTPException(
                     status_code=400,
-                    detail="machine_id a target_path sú povinné pre skripty, ktoré nepochádzajú z remote importu.",
+                    detail="machine_id and target_path are required for scripts that did not come from a remote import.",
                 ) from exc
             raise
     else:
@@ -392,7 +437,7 @@ def push_script(script_id: int, payload: PushBackRequest):
             raise HTTPException(status_code=404, detail="Machine not found")
 
     try:
-        result = push_file(machine, target_path, script["content"])
+        result = push_file(machine, target_path, script["content"], payload.ssh_password)
     except RemoteExecError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
@@ -401,7 +446,7 @@ def push_script(script_id: int, payload: PushBackRequest):
 
 
 @router.post("/{script_id}/rescan")
-def rescan_script(script_id: int):
+def rescan_script(script_id: int, payload: RescanRequest | None = None):
     """Re-read this script's content from wherever it was originally
     imported from (local_import: mounted path, remote_import: SSH pull)
     and, if the source has drifted since import, update the stored copy.
@@ -414,19 +459,19 @@ def rescan_script(script_id: int):
     if script["source_type"] == "local_import":
         source_path = Path(script["source_ref"])
         if not source_path.is_file():
-            raise HTTPException(status_code=404, detail=f"Zdrojový súbor {source_path} už na disku neexistuje.")
+            raise HTTPException(status_code=404, detail=f"The source file {source_path} no longer exists on disk.")
         try:
             new_content = source_path.read_text(errors="replace")
         except OSError as exc:
-            raise HTTPException(status_code=503, detail=f"Súbor sa nepodarilo prečítať: {exc}") from exc
+            raise HTTPException(status_code=503, detail=f"Could not read the file: {exc}") from exc
     elif script["source_type"] == "remote_import":
         machine, path = _resolve_remote_source(script)
         try:
-            new_content = pull_file(machine, path)
+            new_content = pull_file(machine, path, payload.ssh_password if payload else None)
         except RemoteExecError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
     else:
-        raise HTTPException(status_code=400, detail="Tento skript nepochádza z importu, niet z čoho ho obnoviť.")
+        raise HTTPException(status_code=400, detail="This script was not imported, so there is nothing to restore it from.")
 
     changed = new_content != script["content"]
     if changed:
@@ -459,7 +504,7 @@ def bulk_tag(payload: BulkTagRequest):
     add_tags = {t.strip() for t in payload.add.split(",") if t.strip()}
     remove_tags = {t.strip() for t in payload.remove.split(",") if t.strip()}
     if not add_tags and not remove_tags:
-        raise HTTPException(status_code=400, detail="Zadaj aspoň jeden tag na pridanie alebo odstránenie.")
+        raise HTTPException(status_code=400, detail="Provide at least one tag to add or remove.")
 
     updated = 0
     with get_conn() as conn:
@@ -488,12 +533,12 @@ def rename_tag(payload: TagRenameRequest):
     old = payload.old.strip()
     new = payload.new.strip()
     if not old or not new:
-        raise HTTPException(status_code=400, detail="Staré aj nové meno tagu sú povinné.")
+        raise HTTPException(status_code=400, detail="Both the old and the new tag name are required.")
     if "," in old or "," in new:
         # Tags are stored as a single comma-separated string per script
         # (see the `tags` column) -- a tag containing a literal comma
         # would silently split into two tags the next time it's parsed.
-        raise HTTPException(status_code=400, detail="Meno tagu nesmie obsahovať čiarku.")
+        raise HTTPException(status_code=400, detail="A tag name must not contain a comma.")
     if old == new:
         return {"updated": 0}
 
@@ -501,7 +546,8 @@ def rename_tag(payload: TagRenameRequest):
     updated = 0
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT id, tags FROM scripts WHERE (',' || tags || ',') LIKE ?", (f"%,{old},%",)
+            r"SELECT id, tags FROM scripts WHERE (',' || tags || ',') LIKE ? ESCAPE '\'",
+            (f"%,{_like_escape(old)},%",),
         ).fetchall()
         for row in rows:
             current = {t.strip() for t in row["tags"].split(",") if t.strip()}
@@ -525,15 +571,16 @@ def delete_tag(payload: TagDeleteRequest):
     typo'd or abandoned tag without hunting down each script by hand."""
     tag = payload.tag.strip()
     if not tag:
-        raise HTTPException(status_code=400, detail="Meno tagu je povinné.")
+        raise HTTPException(status_code=400, detail="A tag name is required.")
     if "," in tag:
-        raise HTTPException(status_code=400, detail="Meno tagu nesmie obsahovať čiarku.")
+        raise HTTPException(status_code=400, detail="A tag name must not contain a comma.")
 
     now = datetime.now(timezone.utc).isoformat()
     updated = 0
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT id, tags FROM scripts WHERE (',' || tags || ',') LIKE ?", (f"%,{tag},%",)
+            r"SELECT id, tags FROM scripts WHERE (',' || tags || ',') LIKE ? ESCAPE '\'",
+            (f"%,{_like_escape(tag)},%",),
         ).fetchall()
         for row in rows:
             current = {t.strip() for t in row["tags"].split(",") if t.strip()}
@@ -596,6 +643,10 @@ def import_from_path(payload: PathImportRequest):
         raise HTTPException(status_code=403, detail=str(exc))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    # Logged like /import/confirm -- this route has no UI caller today,
+    # which is exactly why a blind bulk import through it must not be the
+    # one write path that leaves no trace in the audit log.
+    log_action("bulk_import", None, "", f"path={payload.path} host={payload.host} {result} (blind)")
     return result
 
 
@@ -639,7 +690,7 @@ def scan_remote(payload: RemoteScanRequest):
             ).fetchall()
         }
     try:
-        return scan_remote_path(machine, payload.path, known_refs)
+        return scan_remote_path(machine, payload.path, known_refs, payload.ssh_password)
     except RemoteExecError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
@@ -728,7 +779,7 @@ def schedule_check():
     if not remote_exec_enabled():
         raise HTTPException(
             status_code=400,
-            detail="Vzdialené spustenie je vypnuté (SINDRI_REMOTE_EXEC_ENABLED=false).",
+            detail="Remote execution is disabled (SINDRI_REMOTE_EXEC_ENABLED=false).",
         )
 
     machines = list_machines()

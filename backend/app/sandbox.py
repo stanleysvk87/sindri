@@ -51,13 +51,13 @@ def sandbox_status() -> dict:
         client = docker.from_env()
         client.ping()
     except Exception as exc:  # docker.errors.DockerException + anything else from a bad socket
-        return {"available": False, "reason": f"docker.sock nedostupný: {exc}"}
+        return {"available": False, "reason": f"docker.sock unavailable: {exc}"}
     return {"available": True, "reason": None}
 
 
 def run_in_sandbox(content: str, script_type: str | None = None) -> dict:
     if not sandbox_enabled():
-        raise SandboxUnavailableError("Sandbox je vypnutý (SINDRI_SANDBOX_ENABLED=false).")
+        raise SandboxUnavailableError("The sandbox is disabled (SINDRI_SANDBOX_ENABLED=false).")
 
     import docker
     from docker.errors import DockerException
@@ -65,7 +65,7 @@ def run_in_sandbox(content: str, script_type: str | None = None) -> dict:
     try:
         client = docker.from_env()
     except DockerException as exc:
-        raise SandboxUnavailableError(f"Docker nie je dostupný z backendu: {exc}") from exc
+        raise SandboxUnavailableError(f"Docker is not reachable from the backend: {exc}") from exc
 
     resolved_type = script_type if script_type in IMAGE_BY_TYPE else detect_script_type(content)
     image = IMAGE_BY_TYPE[resolved_type]
@@ -107,7 +107,7 @@ def run_in_sandbox(content: str, script_type: str | None = None) -> dict:
         stdout = container.logs(stdout=True, stderr=False).decode("utf-8", errors="replace")
         stderr = container.logs(stdout=False, stderr=True).decode("utf-8", errors="replace")
     except DockerException as exc:
-        raise SandboxError(f"Sandbox spustenie zlyhalo: {exc}") from exc
+        raise SandboxError(f"Sandbox execution failed: {exc}") from exc
     finally:
         if container is not None:
             try:
@@ -118,7 +118,7 @@ def run_in_sandbox(content: str, script_type: str | None = None) -> dict:
     duration_ms = int((time.monotonic() - start) * 1000)
     if timed_out:
         stderr = (
-            stderr + f"\n[sandbox timeout po {SANDBOX_TIMEOUT_SECONDS}s, kontajner zabitý]"
+            stderr + f"\n[sandbox timed out after {SANDBOX_TIMEOUT_SECONDS}s, container killed]"
         ).strip()
 
     return {

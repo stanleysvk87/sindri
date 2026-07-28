@@ -104,6 +104,7 @@ export const sk = {
       alreadyImported: 'už v katalógu',
       importSelected: 'Importovať vybrané ({{count}})',
       importSummary: 'Pridané: {{created}}, aktualizované: {{updated}}.',
+      skippedFiles: 'Počet súborov, ktoré sa nepodarilo načítať a boli vynechané: {{count}}',
     },
     remote: {
       noMachinesPrefix: 'Žiadne stroje zaregistrované — pridaj aspoň jeden v',
@@ -117,6 +118,7 @@ export const sk = {
       alreadyImported: 'už v katalógu',
       importSelected: 'Importovať vybrané ({{count}})',
       importSummary: 'Pridané: {{created}}, aktualizované: {{updated}}.',
+      skippedFiles: 'Počet súborov, ktoré sa nepodarilo načítať a boli vynechané: {{count}}',
     },
     paste: {
       nameLabel: 'Meno *',

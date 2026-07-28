@@ -71,6 +71,9 @@ class ConfirmImportRequest(BaseModel):
 class RemoteScanRequest(BaseModel):
     machine_id: int
     path: str
+    # Only for machines registered with auth_type='password' -- entered
+    # fresh per call, never stored, same rule as the sudo password.
+    ssh_password: str | None = None
 
 
 class RemoteImportItem(BaseModel):
@@ -89,6 +92,7 @@ class PushBackRequest(BaseModel):
     # source_ref (only possible for source_type == 'remote_import')
     machine_id: int | None = None
     target_path: str | None = None
+    ssh_password: str | None = None  # auth_type='password' machines only
 
 
 class LoginRequest(BaseModel):
@@ -155,6 +159,7 @@ class AIConfigUpdate(BaseModel):
 
 class HostStatusRequest(BaseModel):
     machine_id: int
+    ssh_password: str | None = None  # auth_type='password' machines only
 
 
 class AccountPasswordUpdate(BaseModel):
@@ -164,6 +169,12 @@ class AccountPasswordUpdate(BaseModel):
 
 class RemoteExecAllRequest(BaseModel):
     sudo_password: str | None = None
+
+
+class RescanRequest(BaseModel):
+    """Optional body for POST /scripts/{id}/rescan -- only needed for a
+    remote_import script whose machine uses auth_type='password'."""
+    ssh_password: str | None = None
 
 
 class BulkTagRequest(BaseModel):

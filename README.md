@@ -72,7 +72,8 @@ execution) each have their own enable steps — see `docs/AI_FEATURES.md`,
 - **Catalog export**: the entire catalog content as a downloadable JSON
   file.
 - **Login brute-force lockout**: 5 failed attempts / 15 min locks out
-  that IP address.
+  that client address (see `SINDRI_TRUSTED_PROXIES` below when running
+  behind a reverse proxy).
 - **Settings**: managed machine registry, paginated audit log (who/when/
   which script/which machine, never the password or full output),
   catalog overview.
@@ -86,9 +87,19 @@ on, the backend can hold real power: SSH keys for registered machines,
 a Docker socket (sandbox), and AI CLI credentials.
 
 - Auth: one password (PBKDF2-SHA256, 200k iterations), a session cookie
-  (`httponly`, `samesite=lax`), and a per-IP brute-force lockout (5
-  attempts / 15 min). No roles, no multi-user, no CSRF token, no TOTP —
-  this is a single-operator tool, not a multi-tenant one.
+  (`httponly`, `samesite=lax`, `secure` when `SINDRI_COOKIE_SECURE=true`),
+  and a brute-force lockout (5 attempts / 15 min). Logging out and
+  changing the password both invalidate sessions server-side, not just in
+  the browser. No roles, no multi-user, no CSRF token, no TOTP — this is
+  a single-operator tool, not a multi-tenant one.
+- The lockout is keyed on the client address, which behind a reverse
+  proxy is only correct if the proxy is listed in
+  `SINDRI_TRUSTED_PROXIES` (the bundled `docker-compose.yml` sets this
+  for the frontend container). A forwarded `X-Forwarded-For`/`X-Real-IP`
+  is believed **only** from a peer on that list — otherwise any client
+  could hand over a made-up address. If you point the list at nothing,
+  every request behind the proxy shares one bucket and the lockout
+  becomes global rather than per-IP.
 - Local scan/import (`/api/scripts/import/scan`, `/import/confirm`) is
   restricted server-side to the configured import root(s)
   (`SINDRI_IMPORT_ALLOWED_ROOTS`, default `/import-sources`) — it cannot
@@ -96,9 +107,13 @@ a Docker socket (sandbox), and AI CLI credentials.
 - Registering a machine with `auth_type=key` validates server-side that
   `ssh_key_path` is one of the keys actually mounted from the host, not
   an arbitrary path supplied by the client.
-- All subprocess calls (SSH, sandbox) use argv lists, never a shell
-  string — script content and remote paths never get interpreted by a
-  shell parser, only executed directly as the intended command.
+- Subprocess calls (SSH, sandbox) are built as argv lists, never by
+  string-interpolating into a shell command line: script content is
+  piped to the remote `bash -s` over **stdin**, so it is never part of
+  any command line. Remote *paths* do reach the remote shell inside a
+  small fixed command (`base64 <path>`, `find <path> …`), and every one
+  of those is `shlex.quote`d first — no unquoted interpolation anywhere.
+  The local process is never started with `shell=True`.
 - Sudo/SSH passwords are entered fresh per run, sent over stdin (never
   argv, never in `ps` output), never persisted (not in the DB, not in
   the audit log), and scrubbed from any error text before it's returned.
@@ -111,9 +126,18 @@ a Docker socket (sandbox), and AI CLI credentials.
 - No host/path allowlisting on remote execution beyond "the machine is
   registered" — a registered machine's SSH key can run anything the
   target user's shell permissions allow.
-- No CSRF protection, no TOTP/2FA, no `secure` cookie flag (the app
-  targets plain-HTTP LAN deployments by default — if you put it behind
-  HTTPS, consider setting `secure=True` on the session cookie yourself).
+- No CSRF protection and no TOTP/2FA. The `secure` cookie flag is off by
+  default because the app targets plain-HTTP LAN deployments (a secure
+  cookie would never be sent there) — set `SINDRI_COOKIE_SECURE=true` if
+  you serve it over HTTPS.
+- An Anthropic API key saved from the Settings page is stored in the
+  SQLite DB in cleartext (it is never displayed back, but anyone with the
+  DB file can read it). Use the `SINDRI_ANTHROPIC_API_KEY` env var if you
+  would rather it not live in the database.
+- Machines registered with `auth_type=password` need the SSH password on
+  every call; the UI only prompts for it in the remote-exec panel, so
+  push/rescan/host-status against such a machine currently fail with a
+  clear "SSH password is required" error rather than prompting.
 - `secret_scan.py` is a loose heuristic ("double-check before sharing"),
   not a real secret scanner — false negatives are expected.
 - Sandbox execution requires access to the host's Docker socket, which

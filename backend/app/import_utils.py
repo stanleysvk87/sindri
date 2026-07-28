@@ -50,7 +50,15 @@ def _iter_script_files(root: Path):
             continue
         if ".bak" in path.name:
             continue
-        if path.stat().st_size > MAX_FILE_BYTES:
+        try:
+            if path.stat().st_size > MAX_FILE_BYTES:
+                continue
+        except OSError:
+            # A dangling symlink is_dir()s as False but still passes the
+            # .sh/.py suffix check on the LINK's name, so stat() raises
+            # FileNotFoundError -- which used to bubble up as a 400 and
+            # made the ENTIRE directory unscannable because of one stale
+            # link. Skip just that entry instead.
             continue
         yield path
 

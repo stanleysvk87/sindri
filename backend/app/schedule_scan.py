@@ -33,9 +33,9 @@ true
 def scan_schedule(machine: dict) -> str:
     result = run_remote(machine, _SCAN_SCRIPT, None)
     if result["timed_out"]:
-        raise RemoteExecError("Kontrola plánovania vypršala (timeout).")
+        raise RemoteExecError("The schedule check timed out.")
     if result["exit_code"] not in (0, None):
-        raise RemoteExecError(result["stderr"][:500] or "Kontrola plánovania zlyhala.")
+        raise RemoteExecError(result["stderr"][:500] or "The schedule check failed.")
     return result["stdout"]
 
 

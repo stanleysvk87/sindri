@@ -132,6 +132,21 @@ def _migrate():
         if "works_everywhere" not in script_cols:
             conn.execute("ALTER TABLE scripts ADD COLUMN works_everywhere INTEGER NOT NULL DEFAULT 0")
 
+        # A machine's name is an identifier (imported scripts store
+        # `ssh://<name><path>` and every push/rescan parses it back), so
+        # duplicates make the target ambiguous. Enforced in the schema
+        # from here on; a DB that already has duplicates keeps working
+        # (index creation just fails) -- machines.validate_machine_name
+        # blocks new ones either way, and _resolve_remote_source refuses
+        # to guess between existing ones.
+        try:
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_machines_name_unique"
+                " ON machines(name COLLATE NOCASE)"
+            )
+        except sqlite3.IntegrityError:
+            pass
+
 
 def seed_templates():
     from datetime import datetime, timezone

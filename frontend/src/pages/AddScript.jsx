@@ -263,6 +263,7 @@ function RemoteScanTab() {
   const [path, setPath] = useState('')
   const [host, setHost] = useState('')
   const [candidates, setCandidates] = useState(null)
+  const [skipped, setSkipped] = useState([])
   const [selected, setSelected] = useState(() => new Set())
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState('')
@@ -288,6 +289,10 @@ function RemoteScanTab() {
     try {
       const result = await api.remoteScan(Number(machineId), path)
       setCandidates(result.candidates)
+      // Files the backend could not decode are reported explicitly now
+      // instead of just missing from the list -- show them, otherwise a
+      // partial scan still looks complete.
+      setSkipped(result.skipped || [])
       setSelected(new Set(result.candidates.filter((c) => !c.already_imported).map((c) => c.path)))
     } catch (err) {
       setError(err.message || t('addScript.remote.scanFailed'))
@@ -364,6 +369,18 @@ function RemoteScanTab() {
 
       {error && <p className="mb-4 text-sm text-warning">{error}</p>}
       {status && <p className="mb-4 text-sm text-success">{status}</p>}
+      {skipped.length > 0 && (
+        <div className="mb-4 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+          <p>{t('addScript.remote.skippedFiles', { count: skipped.length })}</p>
+          <ul className="mt-1 list-disc pl-5 text-xs">
+            {skipped.map((s) => (
+              <li key={s.path}>
+                {s.path || '?'} — {s.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {candidates && (
         <>

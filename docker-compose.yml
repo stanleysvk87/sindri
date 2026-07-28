@@ -4,6 +4,25 @@ services:
     environment:
       SINDRI_PASSWORD: ${SINDRI_PASSWORD:?set SINDRI_PASSWORD in .env}
       SINDRI_REMOTE_EXEC_ENABLED: ${SINDRI_REMOTE_EXEC_ENABLED:-false}
+      # Which direct peers may be believed when they say "the real client
+      # is X" (X-Forwarded-For / X-Real-IP). Only the frontend nginx
+      # container talks to this backend -- port 8000 is never published --
+      # so the default trusts the Docker bridge ranges and nothing else.
+      # Without this the login lockout is not per-IP at all: every request
+      # looks like it comes from the proxy container, so any one client
+      # can lock out every other. Set to "" if you expose the backend
+      # directly, or to your own proxy's address if it isn't on a bridge
+      # network.
+      SINDRI_TRUSTED_PROXIES: ${SINDRI_TRUSTED_PROXIES:-172.16.0.0/12,192.168.0.0/16,10.0.0.0/8,127.0.0.1}
+      # Comma-separated origins allowed to make credentialed cross-origin
+      # calls. Empty (default) = no CORS at all, which is correct when the
+      # UI is served from the same origin. Set to http://localhost:5173
+      # only while running the Vite dev server.
+      SINDRI_CORS_ORIGINS: ${SINDRI_CORS_ORIGINS:-}
+      # Set to true when the app is served over HTTPS -- adds `secure` to
+      # the session cookie. Left false by default because a secure cookie
+      # is never sent over the plain-HTTP LAN deployment this targets.
+      SINDRI_COOKIE_SECURE: ${SINDRI_COOKIE_SECURE:-false}
       # "auto" tries claude CLI, then codex CLI, then the Anthropic API key
       # below -- whichever is actually available. See docs/AI_FEATURES.md.
       SINDRI_AI_PROVIDER_MODE: ${SINDRI_AI_PROVIDER_MODE:-auto}

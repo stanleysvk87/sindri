@@ -104,6 +104,7 @@ export const en = {
       alreadyImported: 'already in catalog',
       importSelected: 'Import selected ({{count}})',
       importSummary: 'Added: {{created}}, updated: {{updated}}.',
+      skippedFiles: '{{count}} file(s) could not be read and were left out:',
     },
     remote: {
       noMachinesPrefix: 'No machines registered — add at least one in',
@@ -117,6 +118,7 @@ export const en = {
       alreadyImported: 'already in catalog',
       importSelected: 'Import selected ({{count}})',
       importSummary: 'Added: {{created}}, updated: {{updated}}.',
+      skippedFiles: '{{count}} file(s) could not be read and were left out:',
     },
     paste: {
       nameLabel: 'Name *',

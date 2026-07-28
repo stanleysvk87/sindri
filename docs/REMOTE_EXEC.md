@@ -21,11 +21,13 @@ lasting effect).
 - **SSH key is always just mounted from the host** — the app never
   generates or stores key material itself. `backend/app/ssh_keys.py`
   only lists which keys exist at the mounted path (`GET
-  /api/machines/available-keys`); the "add machine" form (and the "save
-  this ad-hoc connection" flow) both validate server-side that
-  `ssh_key_path` is one of those mounted keys, not an arbitrary
-  in-container path — the dropdown was previously the only thing
-  enforcing that, now the API does too.
+  /api/machines/available-keys`); the "add machine" form and the ad-hoc
+  connection flow both validate server-side that `ssh_key_path` is one
+  of those mounted keys, not an arbitrary in-container path — the
+  dropdown was previously the only thing enforcing that, now the API
+  does too. For the ad-hoc path the check runs **before** the script is
+  executed and regardless of whether the connection is being saved (it
+  used to run only on save, after the run was already over).
 - **The sudo password (if used) is entered fresh on EVERY run**, never
   stored — not in the DB, not in the audit log. It's sent over SSH via
   `sudo -S` on stdin (not as a command argument), so it never shows up
@@ -37,6 +39,13 @@ lasting effect).
 - `SSH BatchMode=yes` — the SSH client never falls into an interactive
   prompt the app has no way to answer (fails fast instead of hanging).
 - 60s timeout, no indefinite hang.
+- **Output caps are explicit, never silent.** A script's stdout/stderr is
+  cut at 20k characters for display, and the result says so
+  (`stdout_truncated`/`stderr_truncated`). The scan/import/pull paths,
+  which move base64 file payloads through the same channel rather than
+  text for a human to read, use a much larger cap and raise
+  `RemoteOutputTruncatedError` if they ever hit it — a partial directory
+  listing that looks like a successful import is worse than an error.
 - Audit log (`backend/app/audit.py`) records who/when/which script/which
   machine/exit code — **never the password, never the full output**
   (output can contain sensitive data from the target machine).

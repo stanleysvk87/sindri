@@ -37,4 +37,10 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)" || exit 1
 
+# Proxy/forwarded-header handling is deliberately done in the app
+# (app/auth.py's client_ip + SINDRI_TRUSTED_PROXIES), not via uvicorn's
+# --forwarded-allow-ips: it needs to be testable, it must apply to the
+# login lockout specifically, and it accepts CIDRs. Do not "fix" this by
+# adding --forwarded-allow-ips=* here -- that would make every client's
+# self-declared address authoritative.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

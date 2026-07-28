@@ -36,7 +36,10 @@ def test_remote_exec_audit_log_never_contains_sudo_password(auth_client, app_env
                 "host": "1.2.3.4",
                 "ssh_user": "u",
                 "auth_type": "key",
-                "ssh_key_path": "",
+                # Must be a key actually mounted from the host: the ad-hoc
+                # path validates this BEFORE running anything now (see
+                # test_remote_exec_adhoc_key_allowlist.py).
+                "ssh_key_path": app_env["valid_key_path"],
             },
             "sudo_password": secret,
         },

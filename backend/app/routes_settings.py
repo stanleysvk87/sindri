@@ -1,10 +1,17 @@
 import os
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.applog import tail as tail_applog
 from app.audit import recent
-from app.auth import check_password, require_auth, set_password
+from app.auth import (
+    COOKIE_NAME,
+    check_password,
+    cookie_secure,
+    create_session,
+    require_auth,
+    set_password,
+)
 from app.db import get_conn
 from app.machines import get_machine
 from app.models import AIConfigUpdate, AccountPasswordUpdate, HostStatusRequest
@@ -12,6 +19,10 @@ from app.remote_exec import RemoteExecError, run_remote
 from app.settings_store import get_setting, set_setting
 
 router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(require_auth)])
+
+# Mirrors ai_engine.get_provider_chain()'s branches -- anything else
+# would silently behave like "auto" (see update_ai_config).
+VALID_PROVIDER_MODES = {"auto", "claude_cli", "codex_cli", "anthropic_api"}
 
 HOST_STATUS_SCRIPT = """\
 echo "Host: $(hostname)"
@@ -22,7 +33,7 @@ df -h / | tail -1
 echo
 free -h
 echo
-echo "Docker kontajnery bežia: $(docker ps -q 2>/dev/null | wc -l)"
+echo "Docker containers running: $(docker ps -q 2>/dev/null | wc -l)"
 """
 
 
@@ -67,7 +78,19 @@ def get_ai_config():
 
 @router.put("/ai")
 def update_ai_config(payload: AIConfigUpdate):
+    """NOTE: an API key saved here is stored in the SQLite DB as
+    cleartext (there is no separate secret store, and the app has no
+    master key to encrypt it with). It is never echoed back by GET /ai --
+    only whether one exists -- but anyone with the DB file can read it.
+    Prefer the SINDRI_ANTHROPIC_API_KEY env var if that matters to you."""
     if payload.provider_mode is not None:
+        if payload.provider_mode not in VALID_PROVIDER_MODES:
+            # Silently falling back to "auto" on a typo used to make GET
+            # /ai echo the invalid value back as if it had taken effect.
+            raise HTTPException(
+                status_code=400,
+                detail=f"provider_mode must be one of: {', '.join(sorted(VALID_PROVIDER_MODES))}",
+            )
         set_setting("ai_provider_mode", payload.provider_mode)
     if payload.anthropic_api_key is not None:
         set_setting("ai_anthropic_api_key", payload.anthropic_api_key)
@@ -80,13 +103,26 @@ def app_log(lines: int = 200):
 
 
 @router.put("/account")
-def update_account_password(payload: AccountPasswordUpdate):
+def update_account_password(payload: AccountPasswordUpdate, response: Response):
     if not check_password(payload.current_password):
-        raise HTTPException(status_code=401, detail="Súčasné heslo nesedí.")
+        raise HTTPException(status_code=401, detail="Current password does not match.")
     if len(payload.new_password) < 8:
-        raise HTTPException(status_code=400, detail="Nové heslo musí mať aspoň 8 znakov.")
+        raise HTTPException(status_code=400, detail="The new password must be at least 8 characters.")
+    # set_password wipes every existing session (a password change is the
+    # documented way to kick out a stolen cookie) -- so hand this caller a
+    # brand new one, otherwise changing the password logs you out of your
+    # own browser as a side effect.
     set_password(payload.new_password)
-    return {"ok": True}
+    token = create_session()
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=cookie_secure(),
+        max_age=14 * 24 * 3600,
+    )
+    return {"ok": True, "sessions_invalidated": True}
 
 
 @router.post("/host-status")
@@ -100,6 +136,10 @@ def host_status(payload: HostStatusRequest):
     if not machine:
         raise HTTPException(status_code=404, detail="Machine not found")
     try:
-        return run_remote(machine, HOST_STATUS_SCRIPT, None)
+        # ssh_password is optional and only relevant for machines
+        # registered with auth_type='password' (no key mounted); without
+        # it those machines fail here with a clear "password required"
+        # error instead of an unrelated SSH failure.
+        return run_remote(machine, HOST_STATUS_SCRIPT, None, payload.ssh_password)
     except RemoteExecError as exc:
         raise HTTPException(status_code=503, detail=str(exc))

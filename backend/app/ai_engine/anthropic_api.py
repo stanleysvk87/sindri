@@ -20,16 +20,16 @@ class AnthropicAPIProvider:
                 messages=[{"role": "user", "content": prompt}],
             )
         except anthropic.APIConnectionError as exc:
-            raise ProviderUnavailableError(f"Anthropic API nedostupné: {exc}") from exc
+            raise ProviderUnavailableError(f"Anthropic API unavailable: {exc}") from exc
         except anthropic.APIStatusError as exc:
             if exc.status_code in UNAVAILABLE_STATUS_CODES:
-                raise ProviderUnavailableError(f"Anthropic API zlyhalo ({exc.status_code}): {exc}") from exc
-            raise AIEngineError(f"Anthropic API zlyhalo: {exc}") from exc
+                raise ProviderUnavailableError(f"Anthropic API failed ({exc.status_code}): {exc}") from exc
+            raise AIEngineError(f"Anthropic API failed: {exc}") from exc
 
         if response.stop_reason == "refusal":
-            raise AIEngineError("Model odmietol požiadavku")
+            raise AIEngineError("The model refused the request")
 
         text = next((b.text for b in response.content if b.type == "text"), None)
         if not text:
-            raise AIEngineError("Prázdna odpoveď od API")
+            raise AIEngineError("Empty response from the API")
         return text

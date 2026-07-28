@@ -16,16 +16,25 @@ from app.routes_settings import router as settings_router
 
 app = FastAPI(title="sindri")
 
-# Frontend is a static build served by the same reverse proxy (Caddy) in
-# production; CORS with credentials is only needed for local `npm run dev`
-# hitting the backend on a different port.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Frontend is a static build served by the same origin (the bundled nginx
+# container, or your own reverse proxy) in production, so no CORS is
+# needed there at all. Credentialed cross-origin access is only useful
+# for local `npm run dev` on a different port -- and it was previously
+# hardcoded ON in production, meaning anything a victim's browser
+# resolved to http://localhost:5173 could make credentialed calls to the
+# app. Opt in explicitly instead:
+#   SINDRI_CORS_ORIGINS=http://localhost:5173
+_cors_origins = [
+    o.strip() for o in os.environ.get("SINDRI_CORS_ORIGINS", "").split(",") if o.strip()
+]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 app.include_router(auth_router)
 app.include_router(scripts_router)
