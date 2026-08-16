@@ -164,7 +164,7 @@ def test_provider_chain_falls_through_on_unavailable(app_env, monkeypatch):
             del sys.modules[name]
 
     from app import ai_engine
-    from app.ai_engine.base import ProviderUnavailableError
+    from midgard_ai_engine import ProviderUnavailableError
 
     class RateLimited:
         name = "claude_cli"
@@ -190,7 +190,7 @@ def test_provider_chain_reports_when_every_provider_is_unavailable(app_env, monk
             del sys.modules[name]
 
     from app import ai_engine
-    from app.ai_engine.base import AIEngineError, ProviderUnavailableError
+    from midgard_ai_engine import AIEngineError, ProviderUnavailableError
 
     class Dead:
         name = "codex_cli"
@@ -246,8 +246,7 @@ def test_push_to_password_machine_without_password_says_so(app_env, monkeypatch)
 def test_codex_cleans_up_its_temp_file_on_timeout(app_env, monkeypatch):
     from pathlib import Path
 
-    from app.ai_engine.codex_cli import CodexCLIProvider
-    from app.ai_engine.base import ProviderUnavailableError
+    from midgard_ai_engine import CodexCLIProvider, ProviderUnavailableError
 
     created = []
     real_named_temp = __import__("tempfile").NamedTemporaryFile
@@ -257,7 +256,7 @@ def test_codex_cleans_up_its_temp_file_on_timeout(app_env, monkeypatch):
         created.append(Path(handle.name))
         return handle
 
-    monkeypatch.setattr("app.ai_engine.codex_cli.tempfile.NamedTemporaryFile", tracking_temp)
+    monkeypatch.setattr("midgard_ai_engine.cli_runner.tempfile.NamedTemporaryFile", tracking_temp)
 
     def fake_run(cmd, **kwargs):
         raise subprocess.TimeoutExpired(cmd, 120)
