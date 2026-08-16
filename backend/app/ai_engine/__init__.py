@@ -2,11 +2,15 @@ import os
 import shutil
 
 from app.settings_store import get_setting
-
-from .anthropic_api import AnthropicAPIProvider
-from .base import AIProvider, AIEngineError, ProviderUnavailableError
-from .claude_cli import ClaudeCLIProvider
-from .codex_cli import CodexCLIProvider
+from midgard_ai_engine import (
+    AIEngineError,
+    AIProvider,
+    AnthropicAPIProvider,
+    ClaudeCLIProvider,
+    CodexCLIProvider,
+    ProviderUnavailableError,
+    complete_via_chain,
+)
 
 __all__ = [
     "AIProvider",
@@ -62,31 +66,8 @@ _NO_PROVIDER_MESSAGE = (
 
 def complete(prompt: str) -> tuple[str, str]:
     """Run `prompt` through the provider chain and return (text, provider
-    name). A provider that can't be reached at all (missing binary, auth
-    failure, rate limit, timeout -> ProviderUnavailableError) falls
-    through to the next candidate; a provider that ran fine but produced
-    a bad answer (plain AIEngineError) does not, because retrying it
-    elsewhere would just repeat the same work.
-
-    This is what makes mode "auto" actually mean what its docstring and
-    the README claim. Before, get_provider() returned chain[0] and no
-    caller ever iterated, so a rate-limited claude CLI made every AI call
-    fail with 503 even when a perfectly good API key was configured."""
-    chain = get_provider_chain()
-    if not chain:
-        raise AIEngineError(_NO_PROVIDER_MESSAGE)
-
-    last_error: AIEngineError | None = None
-    for provider in chain:
-        try:
-            return provider.complete(prompt), provider.name
-        except ProviderUnavailableError as exc:
-            last_error = exc
-            continue
-    raise AIEngineError(
-        f"No AI provider could handle the request (tried: "
-        f"{', '.join(p.name for p in chain)}). Last error: {last_error}"
-    )
+    name), falling through to the next candidate when one is unavailable."""
+    return complete_via_chain(get_provider_chain(), prompt)
 
 
 def get_provider() -> AIProvider:

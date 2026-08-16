@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.ai_engine import ai_status, complete
-from app.ai_engine.base import AIEngineError
+from app.ai_engine import AIEngineError, ai_status, complete
 from app.ai_engine.prompts import (
     build_chat_prompt,
     build_generate_prompt,
