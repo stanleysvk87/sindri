@@ -51,6 +51,8 @@ export const en = {
     bulkTagFailed: 'Bulk edit failed.',
     loadFailed: 'Failed to load the list.',
     recentlyOpened: 'Recently opened',
+    showAllTags: 'show all {{count}} tags',
+    showFewerTags: 'show fewer tags',
     clearFilter: 'clear filter ×',
     noScriptsFound: 'No scripts found.',
     showingCount: '{{shown}} of {{total}}',

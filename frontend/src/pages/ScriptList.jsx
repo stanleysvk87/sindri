@@ -32,6 +32,7 @@ export default function ScriptList() {
   const [everywhereOnly, setEverywhereOnly] = useState(false)
   const [secretOnly, setSecretOnly] = useState(false)
   const [allScriptsForRecent, setAllScriptsForRecent] = useState([])
+  const [showAllTags, setShowAllTags] = useState(false)
 
   useEffect(() => {
     api.hosts().then((r) => setHosts(r.hosts)).catch(() => {})
@@ -131,13 +132,33 @@ export default function ScriptList() {
   // host=cheatsheet a dostať prázdny výsledok. allScriptsForRecent má vždy
   // celý katalóg (backend list_scripts nič nestránkuje), takže sa dá počítať
   // bez ďalšieho API volania. Bez vybraného stroja sa ukazuje plný zoznam.
-  const visibleTags = host
+  const tagsInScope = host
     ? [...new Set(
         allScriptsForRecent
           .filter((s) => s.host === host)
           .flatMap((s) => (s.tags || '').split(',').map((x) => x.trim()).filter(Boolean))
-      )].sort()
+      )]
     : allTags
+
+  // Frequency per tag across the whole catalog (not just tagsInScope) --
+  // with 200+ distinct tags, most used on a single script, an alphabetical
+  // cloud puts one-off tags on equal visual footing with genuinely useful
+  // filters like #docker or #systemd. Sorting by how often a tag is
+  // actually used, and hiding the long one-off tail behind a toggle,
+  // makes the default view a real filter shortlist instead of noise.
+  const tagCounts = allScriptsForRecent.reduce((acc, s) => {
+    for (const tag of (s.tags || '').split(',').map((x) => x.trim()).filter(Boolean)) {
+      acc[tag] = (acc[tag] || 0) + 1
+    }
+    return acc
+  }, {})
+  const sortedTags = [...tagsInScope].sort((a, b) => {
+    const diff = (tagCounts[b] || 0) - (tagCounts[a] || 0)
+    return diff !== 0 ? diff : a.localeCompare(b)
+  })
+  const TAG_PREVIEW_COUNT = 30
+  const visibleTags = showAllTags ? sortedTags : sortedTags.slice(0, TAG_PREVIEW_COUNT)
+  const hiddenTagCount = sortedTags.length - visibleTags.length
 
   function renderCard(s) {
     const CardWrapper = selectMode ? 'div' : Link
@@ -364,10 +385,28 @@ export default function ScriptList() {
                     : 'border-border-strong bg-panel text-text-secondary hover:border-blue hover:text-text-primary'
                 }`}
               >
-                #{t}
+                #{t} <span className="opacity-60">{tagCounts[t] || 0}</span>
               </button>
             )
           })}
+          {hiddenTagCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowAllTags(true)}
+              className="rounded-full border border-dashed border-border-strong px-2.5 py-1 text-xs text-text-tertiary hover:text-text-primary"
+            >
+              {t('scriptList.showAllTags', { count: sortedTags.length })}
+            </button>
+          )}
+          {showAllTags && hiddenTagCount === 0 && sortedTags.length > TAG_PREVIEW_COUNT && (
+            <button
+              type="button"
+              onClick={() => setShowAllTags(false)}
+              className="rounded-full border border-dashed border-border-strong px-2.5 py-1 text-xs text-text-tertiary hover:text-text-primary"
+            >
+              {t('scriptList.showFewerTags')}
+            </button>
+          )}
           {selectedTags.size > 0 && (
             <button
               type="button"

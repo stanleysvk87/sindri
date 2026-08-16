@@ -51,6 +51,8 @@ export const sk = {
     bulkTagFailed: 'Hromadná úprava zlyhala.',
     loadFailed: 'Nepodarilo sa načítať zoznam.',
     recentlyOpened: 'Naposledy otvorené',
+    showAllTags: 'zobraziť všetkých {{count}} tagov',
+    showFewerTags: 'zobraziť menej tagov',
     clearFilter: 'zrušiť filter ×',
     noScriptsFound: 'Žiadne skripty nenájdené.',
     showingCount: '{{shown}} z {{total}}',
