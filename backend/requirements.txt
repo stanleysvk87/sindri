@@ -1,5 +1,5 @@
 fastapi>=0.141.1,<0.142
-uvicorn[standard]>=0.52.1
+uvicorn[standard]>=0.52.3
 midgard-ai-engine @ https://github.com/stanleysvk87/midgard-ai-engine/archive/refs/heads/main.tar.gz
 pydantic>=2.13.4
 anthropic>=0.122.0
