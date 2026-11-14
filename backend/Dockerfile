@@ -10,7 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssh-client 
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# midgard-ai-engine is a private repo since 2026-10-23, so it is not fetched
+# from GitHub here: scripts/vendor-ai-engine.sh builds its wheel from the local
+# clone into backend/vendor/ (gitignored) right before docker build.
+COPY vendor/ ./vendor/
+RUN pip install --no-cache-dir --find-links ./vendor -r requirements.txt
 
 COPY app ./app
 

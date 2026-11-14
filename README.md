@@ -28,6 +28,11 @@ cp .env.example .env   # set SINDRI_PASSWORD
 docker compose up -d --build
 ```
 
+The backend depends on [midgard-ai-engine](https://github.com/stanleysvk87/midgard-ai-engine)
+(currently a private repo). Clone it next to this repo and run
+`./scripts/vendor-ai-engine.sh` before building; it puts the wheel into
+`backend/vendor/`, which the Dockerfile installs from.
+
 The app runs on `http://localhost:8420` (port configurable via
 `SINDRI_PORT` in `.env`). Optional features (AI, sandbox, remote
 execution) each have their own enable steps — see `docs/AI_FEATURES.md`,
