@@ -84,7 +84,10 @@ services:
       # (GET /api/machines/available-keys) reads this path; SSH itself
       # only touches whichever single key file the registered machine
       # points at.
-      - ${HOME}/.ssh:/home/sindri/.ssh-host:ro
+      # SINDRI_SSH_DIR: point this at a directory that holds only the keys Sindri may use (ideally one
+      # dedicated, restricted key). Defaults to ~/.ssh for backwards compatibility, but mounting the whole
+      # ~/.ssh hands every private key on the host to a web app.
+      - ${SINDRI_SSH_DIR:-${HOME}/.ssh}:/home/sindri/.ssh-host:ro
     restart: unless-stopped
 
   frontend:
